@@ -19,15 +19,16 @@ target/
 *.iml
 *.ipr
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
+### Environment Variables & Secrets ###
+.env
+.env.local
+*.env
+
+### Mac/Linux/Windows temp ###
+.DS_Store
+Thumbs.db
+
 
 ### VS Code ###
 .vscode/
+pss

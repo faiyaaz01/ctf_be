@@ -53,6 +53,13 @@
 			<scope>provided</scope>
 		</dependency>
 
+		<!-- Java Dotenv: automatic .env file loader for local development -->
+		<dependency>
+			<groupId>io.github.cdimascio</groupId>
+			<artifactId>dotenv-java</artifactId>
+			<version>3.0.0</version>
+		</dependency>
+
 		<!-- JWT Authentication (0.12.6) -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
