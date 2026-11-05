@@ -3,6 +3,7 @@ package com.ctf.platform.service.tools;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.springframework.stereotype.Service;
 
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -16,7 +17,173 @@ public class CryptoEngineService {
         Security.addProvider(new BouncyCastleProvider());
     }
 
-    // ── 1. HASH GENERATION & IDENTIFICATION (MD5, SHA1, SHA256, SHA512, NTLM) ──
+    // ETAOIN SHRDLU English character frequency weights for scoring
+    private static final Map<Character, Double> ENGLISH_FREQ = new HashMap<>();
+    static {
+        ENGLISH_FREQ.put('e', 12.7); ENGLISH_FREQ.put('t', 9.1); ENGLISH_FREQ.put('a', 8.2);
+        ENGLISH_FREQ.put('o', 7.5);  ENGLISH_FREQ.put('i', 7.0); ENGLISH_FREQ.put('n', 6.7);
+        ENGLISH_FREQ.put('s', 6.3);  ENGLISH_FREQ.put('h', 6.1); ENGLISH_FREQ.put('r', 6.0);
+        ENGLISH_FREQ.put('d', 4.3);  ENGLISH_FREQ.put('l', 4.0); ENGLISH_FREQ.put('c', 2.8);
+        ENGLISH_FREQ.put('u', 2.8);  ENGLISH_FREQ.put('m', 2.4); ENGLISH_FREQ.put('w', 2.4);
+        ENGLISH_FREQ.put('f', 2.2);  ENGLISH_FREQ.put('g', 2.0); ENGLISH_FREQ.put('y', 2.0);
+        ENGLISH_FREQ.put('p', 1.9);  ENGLISH_FREQ.put('b', 1.5); ENGLISH_FREQ.put('v', 1.0);
+        ENGLISH_FREQ.put('k', 0.8);  ENGLISH_FREQ.put('j', 0.15); ENGLISH_FREQ.put('x', 0.15);
+        ENGLISH_FREQ.put('q', 0.10); ENGLISH_FREQ.put('z', 0.07); ENGLISH_FREQ.put(' ', 15.0);
+    }
+
+    // ── 1. MULTI DECODER (SERVER-SIDE) ──────────────────────────────────────────
+    public List<Map<String, String>> decodeMulti(String input) {
+        List<Map<String, String>> results = new ArrayList<>();
+        if (input == null || input.trim().isEmpty()) return results;
+
+        String raw = input.trim();
+
+        // 1. Base64
+        try {
+            byte[] decoded = Base64.getDecoder().decode(raw);
+            String str = new String(decoded, StandardCharsets.UTF_8);
+            if (isPrintable(str)) {
+                results.add(Map.of("name", "Base64", "val", str));
+            }
+        } catch (Exception ignored) {}
+
+        // 2. Hex to ASCII
+        try {
+            String cleanHex = raw.replaceAll("[\\s0x]+", "");
+            if (cleanHex.matches("^[0-9a-fA-F]+$") && cleanHex.length() % 2 == 0) {
+                byte[] bytes = new byte[cleanHex.length() / 2];
+                for (int i = 0; i < cleanHex.length(); i += 2) {
+                    bytes[i / 2] = (byte) Integer.parseInt(cleanHex.substring(i, i + 2), 16);
+                }
+                String str = new String(bytes, StandardCharsets.UTF_8);
+                if (isPrintable(str)) {
+                    results.add(Map.of("name", "Hex -> ASCII", "val", str));
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 3. URL Decode
+        try {
+            String urlDec = URLDecoder.decode(raw, StandardCharsets.UTF_8);
+            if (!urlDec.equals(raw)) {
+                results.add(Map.of("name", "URL Decoded", "val", urlDec));
+            }
+        } catch (Exception ignored) {}
+
+        // 4. Binary (7/8-bit ASCII)
+        try {
+            String[] tokens = raw.split("[\\s,]+");
+            boolean allBinary = tokens.length > 0 && Arrays.stream(tokens).allMatch(t -> t.matches("^[01]{7,8}$"));
+            if (allBinary) {
+                StringBuilder sb = new StringBuilder();
+                for (String t : tokens) {
+                    sb.append((char) Integer.parseInt(t, 2));
+                }
+                results.add(Map.of("name", "Binary (8-bit)", "val", sb.toString()));
+            }
+        } catch (Exception ignored) {}
+
+        // 5. ROT13
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (char c : raw.toCharArray()) {
+                if (c >= 'a' && c <= 'z') sb.append((char) ('a' + (c - 'a' + 13) % 26));
+                else if (c >= 'A' && c <= 'Z') sb.append((char) ('A' + (c - 'A' + 13) % 26));
+                else sb.append(c);
+            }
+            results.add(Map.of("name", "ROT13", "val", sb.toString()));
+        } catch (Exception ignored) {}
+
+        // 6. Atbash (Alphabet Reverse)
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (char c : raw.toCharArray()) {
+                if (c >= 'a' && c <= 'z') sb.append((char) ('z' - (c - 'a')));
+                else if (c >= 'A' && c <= 'Z') sb.append((char) ('Z' - (c - 'A')));
+                else sb.append(c);
+            }
+            results.add(Map.of("name", "Atbash Cipher", "val", sb.toString()));
+        } catch (Exception ignored) {}
+
+        // 7. Reversed Text
+        results.add(Map.of("name", "Reversed Text", "val", new StringBuilder(raw).reverse().toString()));
+
+        return results;
+    }
+
+    // ── 2. XOR ENGINE (SINGLE-BYTE BRUTE FORCE & REPEATING KEY) ─────────────────
+    public Map<String, Object> crackXor(String input, String inputType, String mode, String key) {
+        Map<String, Object> resp = new HashMap<>();
+        byte[] bytes;
+
+        try {
+            if ("hex".equalsIgnoreCase(inputType)) {
+                String clean = input.replaceAll("[\\s0x]+", "");
+                bytes = new byte[clean.length() / 2];
+                for (int i = 0; i < clean.length(); i += 2) {
+                    bytes[i / 2] = (byte) Integer.parseInt(clean.substring(i, i + 2), 16);
+                }
+            } else {
+                bytes = input.getBytes(StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            resp.put("error", "Invalid input format: " + e.getMessage());
+            return resp;
+        }
+
+        if ("repeating".equalsIgnoreCase(mode)) {
+            if (key == null || key.isEmpty()) {
+                resp.put("result", "");
+                return resp;
+            }
+            byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
+            byte[] out = new byte[bytes.length];
+            for (int i = 0; i < bytes.length; i++) {
+                out[i] = (byte) (bytes[i] ^ keyBytes[i % keyBytes.length]);
+            }
+            resp.put("result", new String(out, StandardCharsets.UTF_8));
+            return resp;
+        }
+
+        // Single-byte Brute Force (0 to 255) scored in Java
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        for (int k = 0; k < 256; k++) {
+            byte[] decryptedBytes = new byte[bytes.length];
+            boolean isPrintable = true;
+            for (int i = 0; i < bytes.length; i++) {
+                int b = (bytes[i] & 0xFF) ^ k;
+                if ((b < 32 || b > 126) && b != 10 && b != 13 && b != 9) {
+                    isPrintable = false;
+                }
+                decryptedBytes[i] = (byte) b;
+            }
+
+            if (isPrintable) {
+                String text = new String(decryptedBytes, StandardCharsets.UTF_8);
+                double score = scoreEnglish(text);
+                Map<String, Object> candidate = new HashMap<>();
+                candidate.put("key", k);
+                candidate.put("keyHex", String.format("0x%02X", k));
+                candidate.put("text", text);
+                candidate.put("score", Math.round(score));
+                candidates.add(candidate);
+            }
+        }
+
+        candidates.sort((a, b) -> Long.compare((long) b.get("score"), (long) a.get("score")));
+        resp.put("candidates", candidates.subList(0, Math.min(candidates.size(), 20)));
+        return resp;
+    }
+
+    private double scoreEnglish(String text) {
+        double score = 0;
+        for (char c : text.toLowerCase().toCharArray()) {
+            score += ENGLISH_FREQ.getOrDefault(c, -5.0);
+        }
+        return score;
+    }
+
+    // ── 3. HASH GENERATION & IDENTIFICATION (MD5, SHA1, SHA256, SHA512, NTLM) ──
     public Map<String, Object> computeHashes(String input) {
         Map<String, Object> result = new HashMap<>();
         if (input == null || input.isEmpty()) {
@@ -25,15 +192,12 @@ public class CryptoEngineService {
         }
 
         byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
-
         result.put("input", input);
         result.put("md5", hashBytes("MD5", bytes));
         result.put("sha1", hashBytes("SHA-1", bytes));
         result.put("sha256", hashBytes("SHA-256", bytes));
         result.put("sha512", hashBytes("SHA-512", bytes));
         result.put("ntlm", computeNtlm(input));
-
-        // Identify possible hash type if input looks like a hash
         result.put("identification", identifyHashType(input.trim()));
 
         return result;
@@ -42,14 +206,12 @@ public class CryptoEngineService {
     private String hashBytes(String algorithm, byte[] bytes) {
         try {
             MessageDigest md = MessageDigest.getInstance(algorithm);
-            byte[] digest = md.digest(bytes);
-            return bytesToHex(digest);
+            return bytesToHex(md.digest(bytes));
         } catch (NoSuchAlgorithmException e) {
             return "Error: " + e.getMessage();
         }
     }
 
-    // NTLM is MD4(UTF-16LE(password)) via BouncyCastle
     private String computeNtlm(String password) {
         try {
             MessageDigest md4 = MessageDigest.getInstance("MD4", "BC");
@@ -69,28 +231,22 @@ public class CryptoEngineService {
             if (len == 32) {
                 types.add(Map.of("name", "MD5", "hashcat", "-m 0", "john", "raw-md5"));
                 types.add(Map.of("name", "NTLM", "hashcat", "-m 1000", "john", "nt"));
-                types.add(Map.of("name", "MD4", "hashcat", "-m 900", "john", "raw-md4"));
             } else if (len == 40) {
                 types.add(Map.of("name", "SHA-1", "hashcat", "-m 100", "john", "raw-sha1"));
-                types.add(Map.of("name", "MySQL5", "hashcat", "-m 300", "john", "mysql-sha1"));
-            } else if (len == 56) {
-                types.add(Map.of("name", "SHA-224", "hashcat", "-m 1300", "john", "raw-sha224"));
             } else if (len == 64) {
                 types.add(Map.of("name", "SHA-256", "hashcat", "-m 1400", "john", "raw-sha256"));
-                types.add(Map.of("name", "Keccak-256", "hashcat", "-m 17800", "john", "keccak-256"));
-            } else if (len == 96) {
-                types.add(Map.of("name", "SHA-384", "hashcat", "-m 10800", "john", "raw-sha384"));
             } else if (len == 128) {
                 types.add(Map.of("name", "SHA-512", "hashcat", "-m 1700", "john", "raw-sha512"));
-                types.add(Map.of("name", "Whirlpool", "hashcat", "-m 6100", "john", "whirlpool"));
             }
         }
-
-        if (text.startsWith("$2a$") || text.startsWith("$2b$") || text.startsWith("$2y$")) {
-            types.add(Map.of("name", "bcrypt", "hashcat", "-m 3200", "john", "bcrypt"));
-        }
-
         return types;
+    }
+
+    private boolean isPrintable(String s) {
+        for (char c : s.toCharArray()) {
+            if ((c < 32 || c > 126) && c != '\n' && c != '\r' && c != '\t') return false;
+        }
+        return true;
     }
 
     private String bytesToHex(byte[] bytes) {
