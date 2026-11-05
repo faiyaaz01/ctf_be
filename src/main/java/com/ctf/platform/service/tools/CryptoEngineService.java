@@ -242,6 +242,201 @@ public class CryptoEngineService {
         return types;
     }
 
+    // ── 4. ENCODING LAB (BASE32, BASE58, BASE64, BASE85, HEX) ─────────────────
+    public Map<String, Object> processEncoding(String input, String algorithm, String mode) {
+        Map<String, Object> resp = new HashMap<>();
+        if (input == null || input.isEmpty()) {
+            resp.put("output", "");
+            return resp;
+        }
+
+        try {
+            boolean isEncode = "encode".equalsIgnoreCase(mode);
+            String result;
+
+            switch (algorithm.toLowerCase()) {
+                case "base64":
+                    if (isEncode) {
+                        result = Base64.getEncoder().encodeToString(input.getBytes(StandardCharsets.UTF_8));
+                    } else {
+                        result = new String(Base64.getDecoder().decode(input.trim()), StandardCharsets.UTF_8);
+                    }
+                    break;
+
+                case "hex":
+                    if (isEncode) {
+                        result = bytesToHex(input.getBytes(StandardCharsets.UTF_8));
+                    } else {
+                        String clean = input.replaceAll("[\\s0x]+", "");
+                        byte[] b = new byte[clean.length() / 2];
+                        for (int i = 0; i < clean.length(); i += 2) {
+                            b[i / 2] = (byte) Integer.parseInt(clean.substring(i, i + 2), 16);
+                        }
+                        result = new String(b, StandardCharsets.UTF_8);
+                    }
+                    break;
+
+                case "base32":
+                    result = isEncode ? encodeBase32(input.getBytes(StandardCharsets.UTF_8)) : decodeBase32(input.trim());
+                    break;
+
+                case "base58":
+                    result = isEncode ? encodeBase58(input.getBytes(StandardCharsets.UTF_8)) : new String(decodeBase58(input.trim()), StandardCharsets.UTF_8);
+                    break;
+
+                case "base85":
+                case "ascii85":
+                    result = isEncode ? encodeAscii85(input.getBytes(StandardCharsets.UTF_8)) : new String(decodeAscii85(input.trim()), StandardCharsets.UTF_8);
+                    break;
+
+                default:
+                    resp.put("error", "Unsupported encoding algorithm: " + algorithm);
+                    return resp;
+            }
+
+            resp.put("output", result);
+        } catch (Exception e) {
+            resp.put("error", "Encoding/Decoding failed: " + e.getMessage());
+        }
+
+        return resp;
+    }
+
+    // Base32 (RFC 4648)
+    private static final String BASE32_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    private String encodeBase32(byte[] data) {
+        StringBuilder sb = new StringBuilder();
+        int val = 0, valBits = 0;
+        for (byte b : data) {
+            val = (val << 8) | (b & 0xFF);
+            valBits += 8;
+            while (valBits >= 5) {
+                sb.append(BASE32_CHARS.charAt((val >> (valBits - 5)) & 31));
+                valBits -= 5;
+            }
+        }
+        if (valBits > 0) {
+            sb.append(BASE32_CHARS.charAt((val << (5 - valBits)) & 31));
+        }
+        while (sb.length() % 8 != 0) sb.append('=');
+        return sb.toString();
+    }
+
+    private String decodeBase32(String data) {
+        String clean = data.replaceAll("=", "").toUpperCase();
+        List<Byte> bytes = new ArrayList<>();
+        int val = 0, valBits = 0;
+        for (char c : clean.toCharArray()) {
+            int idx = BASE32_CHARS.indexOf(c);
+            if (idx == -1) continue;
+            val = (val << 5) | idx;
+            valBits += 5;
+            if (valBits >= 8) {
+                bytes.add((byte) ((val >> (valBits - 8)) & 0xFF));
+                valBits -= 8;
+            }
+        }
+        byte[] arr = new byte[bytes.size()];
+        for (int i = 0; i < bytes.size(); i++) arr[i] = bytes.get(i);
+        return new String(arr, StandardCharsets.UTF_8);
+    }
+
+    // Base58 (Bitcoin Alphabet)
+    private static final String BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    private String encodeBase58(byte[] input) {
+        if (input.length == 0) return "";
+        java.math.BigInteger intData = new java.math.BigInteger(1, input);
+        StringBuilder sb = new StringBuilder();
+        java.math.BigInteger radix = java.math.BigInteger.valueOf(58);
+        while (intData.compareTo(java.math.BigInteger.ZERO) > 0) {
+            java.math.BigInteger[] divRem = intData.divideAndRemainder(radix);
+            sb.append(BASE58_ALPHABET.charAt(divRem[1].intValue()));
+            intData = divRem[0];
+        }
+        for (byte b : input) {
+            if (b == 0) sb.append(BASE58_ALPHABET.charAt(0));
+            else break;
+        }
+        return sb.reverse().toString();
+    }
+
+    private byte[] decodeBase58(String input) {
+        java.math.BigInteger intData = java.math.BigInteger.ZERO;
+        java.math.BigInteger radix = java.math.BigInteger.valueOf(58);
+        for (char c : input.toCharArray()) {
+            int idx = BASE58_ALPHABET.indexOf(c);
+            if (idx == -1) continue;
+            intData = intData.multiply(radix).add(java.math.BigInteger.valueOf(idx));
+        }
+        byte[] raw = intData.toByteArray();
+        int zeros = 0;
+        for (char c : input.toCharArray()) {
+            if (c == BASE58_ALPHABET.charAt(0)) zeros++;
+            else break;
+        }
+        int strip = (raw.length > 1 && raw[0] == 0) ? 1 : 0;
+        byte[] res = new byte[zeros + (raw.length - strip)];
+        System.arraycopy(raw, strip, res, zeros, raw.length - strip);
+        return res;
+    }
+
+    // Ascii85 (Base85)
+    private String encodeAscii85(byte[] data) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        while (i < data.length) {
+            long tuple = 0;
+            int padding = 0;
+            for (int j = 0; j < 4; j++) {
+                tuple <<= 8;
+                if (i + j < data.length) tuple |= (data[i + j] & 0xFF);
+                else padding++;
+            }
+            if (tuple == 0 && padding == 0) {
+                sb.append('z');
+            } else {
+                char[] chars = new char[5];
+                for (int j = 4; j >= 0; j--) {
+                    chars[j] = (char) ('!' + (tuple % 85));
+                    tuple /= 85;
+                }
+                for (int j = 0; j < 5 - padding; j++) sb.append(chars[j]);
+            }
+            i += 4;
+        }
+        return sb.toString();
+    }
+
+    private byte[] decodeAscii85(String input) {
+        String clean = input.replaceAll("\\s+", "");
+        List<Byte> bytes = new ArrayList<>();
+        int i = 0;
+        while (i < clean.length()) {
+            if (clean.charAt(i) == 'z') {
+                for (int j = 0; j < 4; j++) bytes.add((byte) 0);
+                i++;
+                continue;
+            }
+            long tuple = 0;
+            int count = 0;
+            for (int j = 0; j < 5; j++) {
+                if (i + j < clean.length()) {
+                    tuple = tuple * 85 + (clean.charAt(i + j) - '!');
+                    count++;
+                } else {
+                    tuple = tuple * 85 + 84;
+                }
+            }
+            for (int j = 0; j < count - 1; j++) {
+                bytes.add((byte) ((tuple >> (24 - j * 8)) & 0xFF));
+            }
+            i += count;
+        }
+        byte[] res = new byte[bytes.size()];
+        for (int k = 0; k < bytes.size(); k++) res[k] = bytes.get(k);
+        return res;
+    }
+
     private boolean isPrintable(String s) {
         for (char c : s.toCharArray()) {
             if ((c < 32 || c > 126) && c != '\n' && c != '\r' && c != '\t') return false;

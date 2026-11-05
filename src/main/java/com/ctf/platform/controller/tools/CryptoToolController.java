@@ -35,4 +35,12 @@ public class CryptoToolController {
         String input = body.getOrDefault("input", "");
         return ResponseEntity.ok(cryptoEngineService.computeHashes(input));
     }
+
+    @PostMapping("/encoding")
+    public ResponseEntity<Map<String, Object>> processEncoding(@RequestBody Map<String, String> body) {
+        String input = body.getOrDefault("input", "");
+        String algorithm = body.getOrDefault("algorithm", "base64");
+        String mode = body.getOrDefault("mode", "encode");
+        return ResponseEntity.ok(cryptoEngineService.processEncoding(input, algorithm, mode));
+    }
 }
