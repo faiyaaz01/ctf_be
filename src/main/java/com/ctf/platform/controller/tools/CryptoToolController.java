@@ -139,4 +139,12 @@ public class CryptoToolController {
         String p = body.getOrDefault("p", "");
         return ResponseEntity.ok(cryptoEngineService.discreteLog(g, h, p));
     }
+
+    @PostMapping("/crib-drag")
+    public ResponseEntity<Map<String, Object>> cribDrag(@RequestBody Map<String, String> body) {
+        String cipher1 = body.getOrDefault("cipher1", "");
+        String cipher2 = body.getOrDefault("cipher2", "");
+        String crib = body.getOrDefault("crib", "");
+        return ResponseEntity.ok(cryptoEngineService.cribDrag(cipher1, cipher2, crib));
+    }
 }

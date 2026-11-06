@@ -720,6 +720,89 @@ public class CryptoEngineService {
         return null;
     }
 
+    // ── 16. CRIB DRAGGING CRACKER (TWO-TIME PAD) ──────────────────────
+    public Map<String, Object> cribDrag(String cipher1, String cipher2, String crib) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            byte[] b1 = parseHexOrAscii(cipher1);
+            byte[] b2 = parseHexOrAscii(cipher2);
+
+            if (b1.length == 0 || b2.length == 0) {
+                resp.put("error", "Ciphertexts cannot be empty");
+                return resp;
+            }
+
+            int minLen = Math.min(b1.length, b2.length);
+            byte[] xor = new byte[minLen];
+            for (int i = 0; i < minLen; i++) {
+                xor[i] = (byte) (b1[i] ^ b2[i]);
+            }
+            resp.put("xorHex", bytesToHex(xor));
+            resp.put("overlapLength", minLen);
+
+            if (crib == null || crib.isEmpty()) {
+                resp.put("candidates", Collections.emptyList());
+                return resp;
+            }
+
+            byte[] cribBytes = crib.getBytes(StandardCharsets.UTF_8);
+            if (cribBytes.length > minLen) {
+                resp.put("error", "Crib length (" + cribBytes.length + ") exceeds ciphertext overlap (" + minLen + ")");
+                return resp;
+            }
+
+            List<Map<String, Object>> candidates = new ArrayList<>();
+            for (int pos = 0; pos <= minLen - cribBytes.length; pos++) {
+                char[] revealed = new char[cribBytes.length];
+                int printableCount = 0;
+                double score = 0.0;
+
+                for (int j = 0; j < cribBytes.length; j++) {
+                    int val = (xor[pos + j] & 0xFF) ^ (cribBytes[j] & 0xFF);
+                    char c = (char) val;
+                    if (c >= 32 && c <= 126) {
+                        revealed[j] = c;
+                        printableCount++;
+                        char lower = Character.toLowerCase(c);
+                        score += ENGLISH_FREQ.getOrDefault(lower, 0.5);
+                    } else if (c == '\n' || c == '\r' || c == '\t') {
+                        revealed[j] = ' ';
+                        printableCount++;
+                        score += 1.0;
+                    } else {
+                        revealed[j] = '.';
+                    }
+                }
+
+                Map<String, Object> item = new HashMap<>();
+                item.put("position", pos);
+                item.put("revealed", new String(revealed));
+                item.put("printableRatio", (double) printableCount / cribBytes.length);
+                item.put("score", Math.round(score * 10.0) / 10.0);
+                candidates.add(item);
+            }
+
+            candidates.sort((a, b) -> Double.compare((double) b.get("score"), (double) a.get("score")));
+            resp.put("candidates", candidates);
+        } catch (Exception ex) {
+            resp.put("error", "Crib drag failed: " + ex.getMessage());
+        }
+        return resp;
+    }
+
+    private byte[] parseHexOrAscii(String input) {
+        if (input == null) return new byte[0];
+        String clean = input.replaceAll("[\\s0x]+", "");
+        if (clean.matches("^[0-9a-fA-F]+$") && clean.length() % 2 == 0) {
+            byte[] bytes = new byte[clean.length() / 2];
+            for (int i = 0; i < clean.length(); i += 2) {
+                bytes[i / 2] = (byte) Integer.parseInt(clean.substring(i, i + 2), 16);
+            }
+            return bytes;
+        }
+        return input.getBytes(StandardCharsets.UTF_8);
+    }
+
     private boolean isPrintable(String s) {
         for (char c : s.toCharArray()) {
             if ((c < 32 || c > 126) && c != '\n' && c != '\r' && c != '\t') return false;
