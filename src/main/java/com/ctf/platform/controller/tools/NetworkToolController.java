@@ -1,0 +1,28 @@
+package com.ctf.platform.controller.tools;
+
+import com.ctf.platform.service.tools.NetworkEngineService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/tools/network")
+@RequiredArgsConstructor
+public class NetworkToolController {
+
+    private final NetworkEngineService networkEngineService;
+
+    @PostMapping("/calc")
+    public ResponseEntity<Map<String, Object>> calculateSubnet(@RequestBody Map<String, Object> body) {
+        String ip = (String) body.getOrDefault("ip", "");
+        Integer cidr = null;
+        if (body.containsKey("cidr") && body.get("cidr") != null) {
+            try {
+                cidr = Integer.parseInt(body.get("cidr").toString());
+            } catch (NumberFormatException ignored) {}
+        }
+        return ResponseEntity.ok(networkEngineService.calculateSubnet(ip, cidr));
+    }
+}
