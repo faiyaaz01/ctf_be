@@ -58,4 +58,29 @@ public class NetworkEngineServiceTest {
         assertEquals("2001:db8::/64", res.get("cidrNotation"));
         assertEquals("Global Unicast", res.get("ipType"));
     }
+
+    @Test
+    void testOsintDomainRecon() {
+        Map<String, Object> res = service.generateOsintQueries("example.com", "auto", false);
+        assertNull(res.get("error"));
+        assertEquals("example.com", res.get("target"));
+        assertEquals("domain", res.get("detectedType"));
+        assertNotNull(res.get("platforms"));
+        assertNotNull(res.get("dorks"));
+    }
+
+    @Test
+    void testOsintIpRecon() {
+        Map<String, Object> res = service.generateOsintQueries("1.1.1.1", "auto", false);
+        assertNull(res.get("error"));
+        assertEquals("1.1.1.1", res.get("target"));
+        assertEquals("ip", res.get("detectedType"));
+    }
+
+    @Test
+    void testOsintHashDetection() {
+        Map<String, Object> res = service.generateOsintQueries("e4d909c290d0fb1ca068ffaddf22cbd0add8abff", "auto", false);
+        assertNull(res.get("error"));
+        assertEquals("hash_sha1", res.get("detectedType"));
+    }
 }

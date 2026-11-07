@@ -25,4 +25,21 @@ public class NetworkToolController {
         }
         return ResponseEntity.ok(networkEngineService.calculateSubnet(ip, cidr));
     }
+
+    @PostMapping("/osint")
+    public ResponseEntity<Map<String, Object>> generateOsintQueries(@RequestBody Map<String, Object> body) {
+        String target = (String) body.getOrDefault("target", "");
+        String type = (String) body.getOrDefault("type", "auto");
+        boolean queryCrtSh = Boolean.TRUE.equals(body.get("queryCrtSh"));
+        return ResponseEntity.ok(networkEngineService.generateOsintQueries(target, type, queryCrtSh));
+    }
+
+    @PostMapping("/osint/subdomains")
+    public ResponseEntity<Map<String, Object>> fetchSubdomains(@RequestBody Map<String, String> body) {
+        String domain = body.getOrDefault("domain", "");
+        return ResponseEntity.ok(Map.of(
+                "domain", domain,
+                "subdomains", networkEngineService.fetchCrtShSubdomains(domain)
+        ));
+    }
 }

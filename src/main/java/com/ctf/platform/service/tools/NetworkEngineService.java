@@ -6,7 +6,16 @@ import java.math.BigInteger;
 import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class NetworkEngineService {
@@ -321,5 +330,227 @@ public class NetworkEngineService {
             sb.append(String.format("%02x%02x", bytes[i] & 0xFF, bytes[i + 1] & 0xFF));
         }
         return sb.toString();
+    }
+
+    // ── 2. OSINT INTELLIGENCE AGGREGATOR & QUERY ENGINE ─────────────────
+    private static final Pattern CRT_SH_NAME_PATTERN = Pattern.compile("\"name_value\"\\s*:\\s*\"([^\"]+)\"");
+
+    public Map<String, Object> generateOsintQueries(String rawInput, String forcedType, boolean queryCrtSh) {
+        Map<String, Object> response = new LinkedHashMap<>();
+
+        if (rawInput == null || rawInput.trim().isEmpty()) {
+            response.put("error", "Target cannot be empty. Please enter a Domain, IP, Hash, Email, or Username.");
+            return response;
+        }
+
+        String target = rawInput.trim();
+        // Remove protocol if present
+        if (target.startsWith("http://")) target = target.substring(7);
+        if (target.startsWith("https://")) target = target.substring(8);
+        // Remove trailing paths / slashes if it looks like a domain or host
+        if (target.contains("/") && !target.contains(" ")) {
+            target = target.split("/")[0];
+        }
+
+        String detectedType = (forcedType != null && !forcedType.equalsIgnoreCase("auto"))
+                ? forcedType.toLowerCase()
+                : detectTargetType(target);
+
+        response.put("target", target);
+        response.put("detectedType", detectedType);
+
+        List<Map<String, Object>> platforms = new ArrayList<>();
+        List<Map<String, String>> dorks = new ArrayList<>();
+        List<String> subdomains = new ArrayList<>();
+
+        String encodedTarget = urlEncode(target);
+
+        switch (detectedType) {
+            case "domain":
+                platforms.addAll(buildDomainPlatforms(target, encodedTarget));
+                dorks.addAll(buildDomainDorks(target, encodedTarget));
+                if (queryCrtSh) {
+                    subdomains.addAll(fetchCrtShSubdomains(target));
+                }
+                break;
+            case "ip":
+            case "ipv6":
+                platforms.addAll(buildIpPlatforms(target, encodedTarget));
+                break;
+            case "hash_md5":
+            case "hash_sha1":
+            case "hash_sha256":
+            case "hash":
+                platforms.addAll(buildHashPlatforms(target, encodedTarget));
+                break;
+            case "email":
+                platforms.addAll(buildEmailPlatforms(target, encodedTarget));
+                break;
+            case "username":
+            default:
+                platforms.addAll(buildUsernamePlatforms(target, encodedTarget));
+                break;
+        }
+
+        response.put("platforms", platforms);
+        response.put("dorks", dorks);
+        response.put("subdomains", subdomains);
+        response.put("subdomainsCount", subdomains.size());
+
+        return response;
+    }
+
+    public List<String> fetchCrtShSubdomains(String domain) {
+        Set<String> uniqueSubdomains = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        try {
+            HttpClient client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(5))
+                    .build();
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://crt.sh/?q=%25." + domain + "&output=json"))
+                    .timeout(Duration.ofSeconds(6))
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) CTF-Platform-OSINT/1.0")
+                    .GET()
+                    .build();
+
+            HttpResponse<String> resp = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 200 && resp.body() != null && !resp.body().trim().isEmpty()) {
+                Matcher matcher = CRT_SH_NAME_PATTERN.matcher(resp.body());
+                while (matcher.find()) {
+                    String rawNames = matcher.group(1).replace("\\n", "\n").replace("\\r", "");
+                    for (String n : rawNames.split("\n")) {
+                        String clean = n.trim().toLowerCase();
+                        if (clean.startsWith("*.")) clean = clean.substring(2);
+                        if (clean.endsWith("." + domain) || clean.equals(domain)) {
+                            uniqueSubdomains.add(clean);
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // crt.sh can be busy or rate-limited; fallback gracefully
+        }
+        return new ArrayList<>(uniqueSubdomains);
+    }
+
+    private String detectTargetType(String t) {
+        if (t.matches("^(\\d{1,3}\\.){3}\\d{1,3}$")) return "ip";
+        if (t.contains(":") && t.matches("^[0-9a-fA-F:]+$")) return "ipv6";
+        if (t.matches("^[a-fA-F0-9]{32}$")) return "hash_md5";
+        if (t.matches("^[a-fA-F0-9]{40}$")) return "hash_sha1";
+        if (t.matches("^[a-fA-F0-9]{64}$")) return "hash_sha256";
+        if (t.contains("@") && t.matches("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")) return "email";
+        if (t.contains(".") && t.matches("^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,}$")) return "domain";
+        return "username";
+    }
+
+    private List<Map<String, Object>> buildDomainPlatforms(String target, String enc) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        list.add(platformItem("Shodan", "Infrastructure & Open Ports", "hostname:\"" + target + "\"", "https://www.shodan.io/search?query=hostname%3A%22" + enc + "%22", "Network"));
+        list.add(platformItem("Censys", "TLS Certs & Exposed Services", "services.tls.certificates.leaf_data.names: " + target, "https://search.censys.io/search?q=services.tls.certificates.leaf_data.names%3A+" + enc, "Network"));
+        list.add(platformItem("VirusTotal", "Reputation & Malware Intel", target, "https://www.virustotal.com/gui/domain/" + target, "Threat Intel"));
+        list.add(platformItem("crt.sh", "Certificate Transparency Logs", "%." + target, "https://crt.sh/?q=%25." + enc, "Certificates"));
+        list.add(platformItem("URLScan.io", "DOM Scanner & Screenshots", "page.domain:" + target, "https://urlscan.io/search/#page.domain%3A" + enc, "Web Recon"));
+        list.add(platformItem("AlienVault OTX", "Threat Pulses & Indicators", target, "https://otx.alienvault.com/indicator/domain/" + target, "Threat Intel"));
+        list.add(platformItem("SecurityTrails", "Historic DNS & Subdomains", target, "https://securitytrails.com/domain/" + target + "/dns", "DNS Recon"));
+        list.add(platformItem("Wayback Machine", "Historic Archived Pages", target, "https://web.archive.org/web/*/" + target + "/*", "Archives"));
+        list.add(platformItem("DNSDumpster", "DNS Map & Subdomain Discovery", target, "https://dnsdumpster.com/", "DNS Recon"));
+        list.add(platformItem("Hunter.io", "Corporate Email Patterns", target, "https://hunter.io/try/search/" + target, "Identity"));
+        return list;
+    }
+
+    private List<Map<String, Object>> buildIpPlatforms(String target, String enc) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        list.add(platformItem("Shodan", "Host Profile & Exposed Ports", target, "https://www.shodan.io/host/" + target, "Network"));
+        list.add(platformItem("Censys", "Host Services & Protocols", target, "https://search.censys.io/hosts/" + target, "Network"));
+        list.add(platformItem("VirusTotal", "IP Reputation & Malicious Detections", target, "https://www.virustotal.com/gui/ip-address/" + target, "Threat Intel"));
+        list.add(platformItem("AbuseIPDB", "Abuse & Brute Force Reports", target, "https://www.abuseipdb.com/check/" + target, "Threat Intel"));
+        list.add(platformItem("AlienVault OTX", "Threat Intel & Related Pulses", target, "https://otx.alienvault.com/indicator/ip/" + target, "Threat Intel"));
+        list.add(platformItem("IPinfo.io", "Geolocation, ASN & Org", target, "https://ipinfo.io/" + target, "Geo / ASN"));
+        list.add(platformItem("BGP He.net", "Routing, Prefix & AS Info", target, "https://bgp.he.net/ip/" + target, "BGP / Routing"));
+        list.add(platformItem("URLScan.io", "Observed Web Scans on IP", "page.ip:" + target, "https://urlscan.io/search/#page.ip%3A" + enc, "Web Recon"));
+        return list;
+    }
+
+    private List<Map<String, Object>> buildHashPlatforms(String target, String enc) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        list.add(platformItem("VirusTotal", "Multi-Engine Malware Analysis", target, "https://www.virustotal.com/gui/file/" + target, "Malware"));
+        list.add(platformItem("MalwareBazaar", "Public Malware Sample Database", target, "https://bazaar.abuse.ch/sample/" + target + "/", "Malware"));
+        list.add(platformItem("Hybrid Analysis", "Free Sandbox Analysis", target, "https://www.hybrid-analysis.com/search?query=" + target, "Sandbox"));
+        list.add(platformItem("Any.Run", "Interactive Malware Sandbox", target, "https://app.any.run/submissions/#search=" + target, "Sandbox"));
+        list.add(platformItem("Hashmob", "Hash Lookup & Rainbow Cracker", target, "https://hashmob.net/search", "Cracking"));
+        list.add(platformItem("CrackStation", "Wordlist Lookup for MD5/SHA1", target, "https://crackstation.net/", "Cracking"));
+        return list;
+    }
+
+    private List<Map<String, Object>> buildEmailPlatforms(String target, String enc) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        String domainPart = target.contains("@") ? target.split("@")[1] : target;
+        list.add(platformItem("Hunter.io", "Domain Email Finder", domainPart, "https://hunter.io/try/search/" + domainPart, "Identity"));
+        list.add(platformItem("HaveIBeenPwned", "Data Breach Database", target, "https://haveibeenpwned.com/", "Breach Check"));
+        list.add(platformItem("IntelX", "Intelligence X Search Engine", target, "https://intelx.io/?s=" + enc, "Intel / Leaks"));
+        list.add(platformItem("EmailRep.io", "Reputation & Malicious Scoring", target, "https://emailrep.io/" + target, "Reputation"));
+        list.add(platformItem("Google Search", "Exact Email Appearances", "\"" + target + "\"", "https://www.google.com/search?q=%22" + enc + "%22", "Dork"));
+        return list;
+    }
+
+    private List<Map<String, Object>> buildUsernamePlatforms(String target, String enc) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        list.add(platformItem("GitHub", "Source Code & User Profile", target, "https://github.com/" + target, "Code / Dev"));
+        list.add(platformItem("WhatsMyName / Namechk", "300+ Social Media Platforms", target, "https://whatsmyname.app/", "Social"));
+        list.add(platformItem("X (Twitter)", "Social Media Profile", target, "https://x.com/" + target, "Social"));
+        list.add(platformItem("Reddit", "Reddit User Submissions", target, "https://www.reddit.com/user/" + target, "Social"));
+        list.add(platformItem("Google Dork", "Exact Username Mentions", "\"" + target + "\"", "https://www.google.com/search?q=%22" + enc + "%22", "Search"));
+        return list;
+    }
+
+    private List<Map<String, String>> buildDomainDorks(String target, String enc) {
+        List<Map<String, String>> dorks = new ArrayList<>();
+        dorks.add(Map.of(
+                "title", "Config & Environment Files",
+                "dork", "site:" + target + " ext:env OR ext:yml OR ext:yaml OR ext:json OR ext:conf OR ext:ini",
+                "url", "https://www.google.com/search?q=site%3A" + enc + "+(ext%3Aenv+OR+ext%3Ayml+OR+ext%3Ayaml+OR+ext%3Ajson+OR+ext%3Aconf+OR+ext%3Aini)"
+        ));
+        dorks.add(Map.of(
+                "title", "Database & Backup Dumps",
+                "dork", "site:" + target + " ext:sql OR ext:db OR ext:mdb OR ext:bak OR ext:dump OR ext:tar OR ext:zip",
+                "url", "https://www.google.com/search?q=site%3A" + enc + "+(ext%3Asql+OR+ext%3Adb+OR+ext%3Amdb+OR+ext%3Abak+OR+ext%3Adump+OR+ext%3Azip)"
+        ));
+        dorks.add(Map.of(
+                "title", "Admin & Login Portals",
+                "dork", "site:" + target + " inurl:admin OR inurl:login OR inurl:portal OR inurl:cpanel OR inurl:dashboard",
+                "url", "https://www.google.com/search?q=site%3A" + enc + "+(inurl%3Aadmin+OR+inurl%3Alogin+OR+inurl%3Aportal+OR+inurl%3Acpanel)"
+        ));
+        dorks.add(Map.of(
+                "title", "Directory Traversal / Index Of",
+                "dork", "site:" + target + " intitle:\"index of\" OR intitle:\"index.of\"",
+                "url", "https://www.google.com/search?q=site%3A" + enc + "+(intitle%3A%22index+of%22+OR+intitle%3A%22index.of%22)"
+        ));
+        dorks.add(Map.of(
+                "title", "Sensitive Documents (PDF / Office)",
+                "dork", "site:" + target + " filetype:pdf OR filetype:docx OR filetype:xlsx OR filetype:pptx",
+                "url", "https://www.google.com/search?q=site%3A" + enc + "+(filetype%3Apdf+OR+filetype%3Adocx+OR+filetype%3Axlsx)"
+        ));
+        dorks.add(Map.of(
+                "title", "WordPress & CMS Directories",
+                "dork", "site:" + target + " inurl:wp-content OR inurl:wp-includes OR inurl:wp-json",
+                "url", "https://www.google.com/search?q=site%3A" + enc + "+(inurl%3Awp-content+OR+inurl%3Awp-includes+OR+inurl%3Awp-json)"
+        ));
+        return dorks;
+    }
+
+    private Map<String, Object> platformItem(String provider, String desc, String query, String url, String category) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("provider", provider);
+        map.put("description", desc);
+        map.put("query", query);
+        map.put("url", url);
+        map.put("category", category);
+        return map;
+    }
+
+    private static String urlEncode(String val) {
+        return URLEncoder.encode(val, StandardCharsets.UTF_8);
     }
 }
