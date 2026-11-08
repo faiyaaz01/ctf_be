@@ -147,4 +147,10 @@ public class CryptoToolController {
         String crib = body.getOrDefault("crib", "");
         return ResponseEntity.ok(cryptoEngineService.cribDrag(cipher1, cipher2, crib));
     }
+
+    @PostMapping("/rot-table")
+    public ResponseEntity<Map<String, Object>> rotTable(@RequestBody Map<String, String> body) {
+        String text = body.getOrDefault("text", "");
+        return ResponseEntity.ok(cryptoEngineService.rotShiftTable(text));
+    }
 }

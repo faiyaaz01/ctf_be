@@ -48,7 +48,7 @@ PHASE 4: FRONTEND AUTH & PERSISTENT WORKSPACE PAGES [COMPLETED]
 ================================================================================
 PHASE 5: MODULAR TOOL IMPLEMENTATION (64 TOOLS ACROSS 7 DOMAINS)
 ================================================================================
---- [5.1 Cryptography Suite (17 Tools)] ---
+--- [5.1 Cryptography Suite (17 Tools)] [COMPLETED] ---
 [COMPLETED] Step 5.1.1:  MultiDecoder.jsx (Base64, Hex, URL, Binary, ROT13, Atbash, Morse)
 [COMPLETED] Step 5.1.2:  XorToolkit.jsx (Single-byte brute force & repeating key XOR)
 [COMPLETED] Step 5.1.3:  HashUtils.jsx (MD5, SHA1/256/512, NTLM & type heuristic detector)
@@ -65,10 +65,10 @@ PHASE 5: MODULAR TOOL IMPLEMENTATION (64 TOOLS ACROSS 7 DOMAINS)
 [COMPLETED] Step 5.1.14: SubstitutionSolver.jsx (Monoalphabetic solver with n-gram frequency)
 [COMPLETED] Step 5.1.15: DiscreteLogSolver.jsx + Backend Java Baby-step Giant-step
 [COMPLETED] Step 5.1.16: CribDragCracker.jsx (Interactive two-time pad crib dragging)
-[CURRENT]   Step 5.1.17: RotShiftTable.jsx (Simultaneous 25-rotation Caesar table)
+[COMPLETED] Step 5.1.17: RotShiftTable.jsx (Simultaneous 25-rotation Caesar table)
 
 --- [5.2 Web Exploitation Suite (8 Tools)] ---
-[UPCOMING]  Step 5.2.1: JwtAnalyzer.jsx (Token inspector, signature tamper & none-exploit)
+[CURRENT]   Step 5.2.1: JwtAnalyzer.jsx (Token inspector, signature tamper & none-exploit)
 [UPCOMING]  Step 5.2.2: PayloadGen.jsx (Curated dictionary across 13 web attack categories)
 [UPCOMING]  Step 5.2.3: RequestAnalyzer.jsx + Backend Java HTTP Security Header Auditor
 [UPCOMING]  Step 5.2.4: RegexTester.jsx (Interactive regex tester with CTF presets)
@@ -135,3 +135,4 @@ PHASE 6: FULL VERIFICATION & DEPLOYMENT PREPARATION
 [UPCOMING]  Step 6.4: Multi-stage Dockerfile packaging for ctf-be (< 150MB Temurin JRE)
 [UPCOMING]  Step 6.5: Final git sync and release documentation
 ================================================================================
+

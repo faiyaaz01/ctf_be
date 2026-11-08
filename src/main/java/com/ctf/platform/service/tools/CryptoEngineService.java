@@ -790,6 +790,42 @@ public class CryptoEngineService {
         return resp;
     }
 
+    // ── 17. CAESAR 25-SHIFT ROTATION TABLE ────────────────────────────
+    public Map<String, Object> rotShiftTable(String text) {
+        Map<String, Object> resp = new HashMap<>();
+        if (text == null || text.isEmpty()) {
+            resp.put("shifts", Collections.emptyList());
+            return resp;
+        }
+
+        List<Map<String, Object>> shifts = new ArrayList<>();
+        for (int k = 1; k <= 25; k++) {
+            StringBuilder sb = new StringBuilder();
+            double score = 0.0;
+            for (char c : text.toCharArray()) {
+                if (c >= 'a' && c <= 'z') {
+                    char shifted = (char) ('a' + (c - 'a' + k) % 26);
+                    sb.append(shifted);
+                    score += ENGLISH_FREQ.getOrDefault(shifted, 0.5);
+                } else if (c >= 'A' && c <= 'Z') {
+                    char shifted = (char) ('A' + (c - 'A' + k) % 26);
+                    sb.append(shifted);
+                    score += ENGLISH_FREQ.getOrDefault(Character.toLowerCase(shifted), 0.5);
+                } else {
+                    sb.append(c);
+                    if (c == ' ') score += 1.5;
+                }
+            }
+            Map<String, Object> item = new HashMap<>();
+            item.put("shift", k);
+            item.put("text", sb.toString());
+            item.put("score", Math.round(score * 10.0) / 10.0);
+            shifts.add(item);
+        }
+        resp.put("shifts", shifts);
+        return resp;
+    }
+
     private byte[] parseHexOrAscii(String input) {
         if (input == null) return new byte[0];
         String clean = input.replaceAll("[\\s0x]+", "");
