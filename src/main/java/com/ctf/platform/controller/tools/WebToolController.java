@@ -38,4 +38,20 @@ public class WebToolController {
         List<String> customWordlist = (List<String>) body.get("customWordlist");
         return ResponseEntity.ok(webEngineService.crackJwtSecret(token, customWordlist));
     }
+
+    @GetMapping("/payloads")
+    public ResponseEntity<Map<String, Object>> getPayloads(
+            @RequestParam(required = false, defaultValue = "all") String category,
+            @RequestParam(required = false) String query) {
+        return ResponseEntity.ok(webEngineService.getPayloadCatalog(category, query));
+    }
+
+    @PostMapping("/payloads/encode")
+    public ResponseEntity<Map<String, Object>> encodePayload(@RequestBody Map<String, Object> body) {
+        String raw = (String) body.getOrDefault("payload", "");
+        String encoding = (String) body.getOrDefault("encoding", "raw");
+        @SuppressWarnings("unchecked")
+        Map<String, String> replacements = (Map<String, String>) body.get("replacements");
+        return ResponseEntity.ok(webEngineService.encodePayload(raw, encoding, replacements));
+    }
 }
