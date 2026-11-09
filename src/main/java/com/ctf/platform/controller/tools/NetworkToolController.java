@@ -42,4 +42,18 @@ public class NetworkToolController {
                 "subdomains", networkEngineService.fetchCrtShSubdomains(domain)
         ));
     }
+
+    @GetMapping("/wordlists")
+    public ResponseEntity<Map<String, Object>> getWordlists(
+            @RequestParam(required = false, defaultValue = "all") String category,
+            @RequestParam(required = false) String query) {
+        return ResponseEntity.ok(networkEngineService.getWordlistsCatalog(category, query));
+    }
+
+    @PostMapping("/wordlists/commands")
+    public ResponseEntity<Map<String, Object>> generateCommands(@RequestBody Map<String, String> body) {
+        String wordlistId = body.getOrDefault("wordlistId", "rockyou");
+        String target = body.getOrDefault("target", "http://target.htb");
+        return ResponseEntity.ok(networkEngineService.generateWordlistCommands(wordlistId, target));
+    }
 }

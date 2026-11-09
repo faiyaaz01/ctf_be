@@ -83,4 +83,23 @@ public class NetworkEngineServiceTest {
         assertNull(res.get("error"));
         assertEquals("hash_sha1", res.get("detectedType"));
     }
+
+    @Test
+    void testWordlistsCatalog() {
+        Map<String, Object> all = service.getWordlistsCatalog("all", null);
+        assertNotNull(all.get("wordlists"));
+        assertTrue((int) all.get("matched") >= 10);
+
+        Map<String, Object> passwords = service.getWordlistsCatalog("passwords", null);
+        assertTrue((int) passwords.get("matched") >= 3);
+    }
+
+    @Test
+    void testWordlistCommandGeneration() {
+        Map<String, Object> commands = service.generateWordlistCommands("dir_medium", "http://target.htb");
+        assertNotNull(commands.get("commands"));
+        Map<?, ?> map = (Map<?, ?>) commands.get("commands");
+        assertTrue(map.containsKey("ffuf (Directory)"));
+        assertTrue(map.containsKey("gobuster (Directory)"));
+    }
 }

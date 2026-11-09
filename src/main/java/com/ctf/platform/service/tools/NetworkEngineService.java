@@ -553,4 +553,203 @@ public class NetworkEngineService {
     private static String urlEncode(String val) {
         return URLEncoder.encode(val, StandardCharsets.UTF_8);
     }
+
+    // ── 3. WORDLISTS & COMMAND GENERATOR ─────────────────────────────────
+    private static final List<Map<String, Object>> WORDLISTS = new ArrayList<>();
+    static {
+        WORDLISTS.add(createWordlist("rockyou", "RockYou Password List", "passwords",
+                "The undisputed king of password lists for CTFs and offline hashes (MD5, NTLM, WPA2). Contains 14.3M cracked passwords.",
+                "14,344,392", "134 MB", "/usr/share/wordlists/rockyou.txt",
+                "https://github.com/brannondorsey/naive-hashcat/releases/download/data/rockyou.txt",
+                List.of("passwords", "hashes", "offline", "essential"),
+                "sudo gzip -d /usr/share/wordlists/rockyou.txt.gz"));
+
+        WORDLISTS.add(createWordlist("top10k_pass", "10,000 Most Common Passwords", "passwords",
+                "Top 10k most frequent human passwords. Fast first-pass brute-force against online SSH, FTP, or HTTP logins.",
+                "10,000", "85 KB", "/usr/share/seclists/Passwords/Common-Credentials/10k-most-common.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10k-most-common.txt",
+                List.of("passwords", "fast", "online-bruteforce"), null));
+
+        WORDLISTS.add(createWordlist("fasttrack", "Fasttrack Default Credentials", "passwords",
+                "Curated list of default router, CMS, and database administrator passwords.",
+                "223", "2.4 KB", "/usr/share/wordlists/fasttrack.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Default-Web-Credentials/fasttrack.txt",
+                List.of("passwords", "defaults", "routers"), null));
+
+        WORDLISTS.add(createWordlist("dir_medium", "Directory-List-2.3-Medium", "discovery",
+                "Industry standard directory & file brute-forcing list by DirBuster. Covers 90% of CTF web challenges.",
+                "220,560", "2.3 MB", "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/directory-list-2.3-medium.txt",
+                List.of("web", "directories", "gobuster", "ffuf", "essential"), null));
+
+        WORDLISTS.add(createWordlist("common_web", "Dirb Common Web Endpoints", "discovery",
+                "Quick web discovery list targeting common admin paths, index variations, and backup files.",
+                "4,714", "37 KB", "/usr/share/wordlists/dirb/common.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt",
+                List.of("web", "fast", "quick-scan"), null));
+
+        WORDLISTS.add(createWordlist("raft_medium_words", "Raft Medium Words", "discovery",
+                "Case-sensitive wordlist mined from real web root structures. Excellent for case-sensitive Apache/Nginx web servers.",
+                "63,088", "480 KB", "/usr/share/seclists/Discovery/Web-Content/raft-medium-words.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-medium-words.txt",
+                List.of("web", "case-sensitive", "raft"), null));
+
+        WORDLISTS.add(createWordlist("subdomains_top1m", "Top 110k Subdomains", "subdomains",
+                "Top 110,000 subdomains from the Alexa top 1 million. Standard for DNS bruteforce and virtual host fuzzing.",
+                "114,441", "1.2 MB", "/usr/share/seclists/Discovery/DNS/subdomains-top1million-110000.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-110000.txt",
+                List.of("dns", "subdomains", "vhosts", "recon"), null));
+
+        WORDLISTS.add(createWordlist("combined_dns", "Combined Subdomain Wordlist", "subdomains",
+                "Massive 546k aggregated subdomain list combining Jhaddix, SecLists, and Bitquark lists.",
+                "546,676", "6.8 MB", "/usr/share/seclists/Discovery/DNS/combined_subdomains.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/combined_subdomains.txt",
+                List.of("dns", "subdomains", "deep-recon"), null));
+
+        WORDLISTS.add(createWordlist("sqli_auth_bypass", "SQLi Auth Bypass Payloads", "fuzzing",
+                "High-probability SQL injection authentication bypass strings for login portals (' OR 1=1 --, admin' #, etc.).",
+                "160", "2.6 KB", "/usr/share/seclists/Fuzzing/SQLi/Generic-SQLi.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/SQLi/Generic-SQLi.txt",
+                List.of("sqli", "fuzzing", "auth-bypass", "web"), null));
+
+        WORDLISTS.add(createWordlist("xss_polyglots", "XSS Polyglots & Filter Bypasses", "fuzzing",
+                "Curated list of XSS payloads including SVG, onerror handlers, and JS execution vectors.",
+                "125", "4.5 KB", "/usr/share/seclists/Fuzzing/XSS/XSS-Cheat-Sheet-PortSwigger.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/XSS/XSS-Cheat-Sheet-PortSwigger.txt",
+                List.of("xss", "fuzzing", "polyglot", "web"), null));
+
+        WORDLISTS.add(createWordlist("lfi_traversal", "LFI & Path Traversal Wordlist", "fuzzing",
+                "Jhaddix LFI payloads with URL encoding, null-bytes (%00), deep directory hopping (../../../../etc/passwd).",
+                "2,048", "34 KB", "/usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Fuzzing/LFI/LFI-Jhaddix.txt",
+                List.of("lfi", "traversal", "linux", "windows"), null));
+
+        WORDLISTS.add(createWordlist("api_endpoints", "Common REST API Routes", "api",
+                "Mined OpenAPI and Swagger endpoints (/api/v1/users, /graphql, /internal, /actuator, /env).",
+                "5,340", "52 KB", "/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/api/api-endpoints.txt",
+                List.of("api", "rest", "swagger", "json"), null));
+
+        WORDLISTS.add(createWordlist("burp_params", "Burp Parameter Names", "api",
+                "Top GET/POST query parameter names for uncovering hidden functionality and IDORs (id, debug, role, redirect).",
+                "2,588", "26 KB", "/usr/share/seclists/Discovery/Web-Content/burp-parameter-names.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/burp-parameter-names.txt",
+                List.of("parameters", "idor", "mining"), null));
+
+        WORDLISTS.add(createWordlist("top_usernames", "Top Usernames Shortlist", "usernames",
+                "Top 1,000 standard accounts, service accounts, and administrator handles for username enumeration.",
+                "1,000", "8.5 KB", "/usr/share/seclists/Usernames/top-usernames-shortlist.txt",
+                "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Usernames/top-usernames-shortlist.txt",
+                List.of("usernames", "enum", "accounts"), null));
+    }
+
+    public Map<String, Object> getWordlistsCatalog(String category, String query) {
+        Map<String, Object> res = new LinkedHashMap<>();
+        List<Map<String, Object>> filtered = new ArrayList<>();
+
+        String catFilter = (category != null && !category.equalsIgnoreCase("all")) ? category.toLowerCase() : null;
+        String qFilter = (query != null && !query.trim().isEmpty()) ? query.trim().toLowerCase() : null;
+
+        for (Map<String, Object> w : WORDLISTS) {
+            String cat = (String) w.get("category");
+            String name = (String) w.get("name");
+            String desc = (String) w.get("description");
+
+            if (catFilter != null && !cat.equalsIgnoreCase(catFilter)) {
+                continue;
+            }
+            if (qFilter != null && !name.toLowerCase().contains(qFilter) && !desc.toLowerCase().contains(qFilter)) {
+                continue;
+            }
+            filtered.add(w);
+        }
+
+        res.put("total", WORDLISTS.size());
+        res.put("matched", filtered.size());
+        res.put("category", category != null ? category : "all");
+        res.put("wordlists", filtered);
+        return res;
+    }
+
+    public Map<String, Object> generateWordlistCommands(String wordlistId, String targetInput) {
+        Map<String, Object> res = new LinkedHashMap<>();
+        Map<String, Object> selected = null;
+        for (Map<String, Object> w : WORDLISTS) {
+            if (w.get("id").equals(wordlistId)) {
+                selected = w;
+                break;
+            }
+        }
+        if (selected == null) {
+            selected = WORDLISTS.get(0); // Default to rockyou
+        }
+
+        String target = (targetInput != null && !targetInput.trim().isEmpty())
+                ? targetInput.trim()
+                : "http://target.htb";
+
+        // Clean domain target for VHost/DNS
+        String domainTarget = target;
+        if (domainTarget.startsWith("http://")) domainTarget = domainTarget.substring(7);
+        if (domainTarget.startsWith("https://")) domainTarget = domainTarget.substring(8);
+        if (domainTarget.contains("/")) domainTarget = domainTarget.split("/")[0];
+
+        String kaliPath = (String) selected.get("kaliPath");
+        String rawUrl = (String) selected.get("rawUrl");
+        String category = (String) selected.get("category");
+
+        Map<String, String> commands = new LinkedHashMap<>();
+
+        // 1. Download & Prepare Commands
+        commands.put("Download (curl)", "curl -sLO " + rawUrl);
+        commands.put("Download (wget)", "wget -q " + rawUrl);
+        if (selected.get("unpackCmd") != null) {
+            commands.put("Kali Unpack", (String) selected.get("unpackCmd"));
+        }
+
+        // 2. Fuzzing & Enumeration Commands
+        if ("discovery".equals(category) || "api".equals(category) || "fuzzing".equals(category)) {
+            commands.put("ffuf (Directory)", "ffuf -w " + kaliPath + " -u " + target + "/FUZZ -mc 200,204,301,302,307,401,403 -c -v");
+            commands.put("gobuster (Directory)", "gobuster dir -u " + target + " -w " + kaliPath + " -t 40 -b 404,500");
+            commands.put("feroxbuster (Recursive)", "feroxbuster -u " + target + " -w " + kaliPath + " -t 25 -d 2");
+            commands.put("wfuzz", "wfuzz -c -z file," + kaliPath + " --hc 404 " + target + "/FUZZ");
+        } else if ("subdomains".equals(category)) {
+            commands.put("ffuf (VHost Fuzzing)", "ffuf -w " + kaliPath + " -u " + target + " -H \"Host: FUZZ." + domainTarget + "\" -mc 200,301,302 -fs 0");
+            commands.put("gobuster (DNS)", "gobuster dns -d " + domainTarget + " -w " + kaliPath + " -t 30");
+            commands.put("wfuzz (VHost)", "wfuzz -c -z file," + kaliPath + " -H \"Host: FUZZ." + domainTarget + "\" --sc 200,301 " + target);
+        } else if ("passwords".equals(category)) {
+            commands.put("Hydra (SSH)", "hydra -l root -P " + kaliPath + " " + domainTarget + " ssh -t 4");
+            commands.put("Hydra (Web POST)", "hydra -l admin -P " + kaliPath + " " + domainTarget + " http-post-form \"/login:username=^USER^&password=^PASS^:F=invalid\" -t 4");
+            commands.put("Hashcat (MD5)", "hashcat -m 0 hashes.txt " + kaliPath + " -O");
+            commands.put("John the Ripper", "john --wordlist=" + kaliPath + " hashes.txt");
+        } else if ("usernames".equals(category)) {
+            commands.put("Hydra (User Enum)", "hydra -L " + kaliPath + " -p 'password123' " + domainTarget + " ssh");
+            commands.put("Kerbrute (AD User Enum)", "./kerbrute userenum -d " + domainTarget + " --dc " + domainTarget + " " + kaliPath);
+        }
+
+        res.put("wordlist", selected);
+        res.put("target", target);
+        res.put("commands", commands);
+        return res;
+    }
+
+    private static Map<String, Object> createWordlist(String id, String name, String category,
+                                                      String desc, String lines, String size,
+                                                      String kaliPath, String rawUrl,
+                                                      List<String> tags, String unpackCmd) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", id);
+        map.put("name", name);
+        map.put("category", category);
+        map.put("description", desc);
+        map.put("linesCount", lines);
+        map.put("fileSize", size);
+        map.put("kaliPath", kaliPath);
+        map.put("rawUrl", rawUrl);
+        map.put("tags", tags);
+        if (unpackCmd != null) {
+            map.put("unpackCmd", unpackCmd);
+        }
+        return map;
+    }
 }
