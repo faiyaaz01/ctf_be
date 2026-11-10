@@ -96,36 +96,132 @@ public class CryptoEngineService {
     // ── 2. XOR ENGINE ─────────────────────────────────────────────────
     public Map<String, Object> crackXor(String input, String inputType, String mode, String key) {
         Map<String, Object> resp = new HashMap<>();
-        byte[] bytes;
-        try {
-            if ("hex".equalsIgnoreCase(inputType)) {
-                String clean = input.replaceAll("[\\s0x]+", "");
-                bytes = new byte[clean.length() / 2];
-                for (int i = 0; i < clean.length(); i += 2) {
-                    bytes[i / 2] = (byte) Integer.parseInt(clean.substring(i, i + 2), 16);
-                }
-            } else {
-                bytes = input.getBytes(StandardCharsets.UTF_8);
-            }
-        } catch (Exception e) {
-            resp.put("error", "Invalid format: " + e.getMessage());
+        if (input == null || input.trim().isEmpty()) {
+            resp.put("error", "Input is required");
             return resp;
         }
 
-        if ("repeating".equalsIgnoreCase(mode)) {
-            if (key == null || key.isEmpty()) {
-                resp.put("result", "");
+        byte[] bytes;
+        try {
+            bytes = parseInputBytes(input, inputType);
+        } catch (Exception e) {
+            resp.put("error", "Invalid input format: " + e.getMessage());
+            return resp;
+        }
+
+        if (bytes.length == 0) {
+            resp.put("error", "Parsed 0 bytes from input");
+            return resp;
+        }
+
+        String effectiveMode = (mode == null || mode.isEmpty()) ? "auto" : mode.toLowerCase().trim();
+
+        // 1. KNOWN-PLAINTEXT ATTACK (KPA)
+        if ("known_plaintext".equals(effectiveMode) || "kpa".equals(effectiveMode) || effectiveMode.startsWith("known")) {
+            if (key == null || key.trim().isEmpty()) {
+                resp.put("error", "Known plaintext pattern/prefix is required (e.g. flag{ or CTF{)");
                 return resp;
             }
-            byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
+            byte[] kp = parseKeyBytes(key);
+            int cmpLen = Math.min(bytes.length, kp.length);
+            byte[] recoveredKey = new byte[cmpLen];
+            for (int i = 0; i < cmpLen; i++) {
+                recoveredKey[i] = (byte) (bytes[i] ^ kp[i]);
+            }
+            byte[] decrypted = new byte[bytes.length];
+            for (int i = 0; i < bytes.length; i++) {
+                decrypted[i] = (byte) (bytes[i] ^ recoveredKey[i % recoveredKey.length]);
+            }
+            String decStr = new String(decrypted, StandardCharsets.UTF_8);
+            resp.put("mode", "Known-Plaintext Attack");
+            resp.put("recoveredKey", new String(recoveredKey, StandardCharsets.UTF_8));
+            resp.put("recoveredKeyHex", "0x" + bytesToHex(recoveredKey));
+            resp.put("result", decStr);
+            resp.put("hex", bytesToHex(decrypted));
+            return resp;
+        }
+
+        // 2. ROLLING XOR (Incremental/Progressive XOR)
+        if ("rolling".equals(effectiveMode) || "incremental".equals(effectiveMode)) {
+            if (key != null && !key.trim().isEmpty()) {
+                byte[] kb = parseKeyBytes(key);
+                int k0 = kb[0] & 0xFF;
+                byte[] out = new byte[bytes.length];
+                for (int i = 0; i < bytes.length; i++) {
+                    out[i] = (byte) (bytes[i] ^ ((k0 + i) & 0xFF));
+                }
+                String text = new String(out, StandardCharsets.UTF_8);
+                resp.put("mode", "Rolling XOR");
+                resp.put("startKey", k0);
+                resp.put("result", text);
+                resp.put("hex", bytesToHex(out));
+                resp.put("binary", bytesToBinary(out));
+                return resp;
+            } else {
+                List<Map<String, Object>> candidates = new ArrayList<>();
+                for (int k = 0; k < 256; k++) {
+                    byte[] out = new byte[bytes.length];
+                    boolean isPrintable = true;
+                    for (int i = 0; i < bytes.length; i++) {
+                        int b = (bytes[i] & 0xFF) ^ ((k + i) & 0xFF);
+                        if ((b < 32 || b > 126) && b != 10 && b != 13 && b != 9) isPrintable = false;
+                        out[i] = (byte) b;
+                    }
+                    if (isPrintable) {
+                        String text = new String(out, StandardCharsets.UTF_8);
+                        Map<String, Object> c = new HashMap<>();
+                        c.put("key", k);
+                        c.put("keyHex", String.format("0x%02X", k));
+                        c.put("text", text);
+                        c.put("score", Math.round(scoreEnglish(text)));
+                        candidates.add(c);
+                    }
+                }
+                candidates.sort((a, b) -> Long.compare((long) b.get("score"), (long) a.get("score")));
+                resp.put("mode", "Rolling XOR (Brute-Force)");
+                resp.put("candidates", candidates.subList(0, Math.min(candidates.size(), 20)));
+                return resp;
+            }
+        }
+
+        // 3. CHAINED XOR (Feedback / CBC XOR)
+        if ("chained".equals(effectiveMode) || "cbc".equals(effectiveMode)) {
+            byte iv = 0;
+            if (key != null && !key.trim().isEmpty()) {
+                iv = parseKeyBytes(key)[0];
+            }
+            byte[] out = new byte[bytes.length];
+            out[0] = (byte) (bytes[0] ^ iv);
+            for (int i = 1; i < bytes.length; i++) {
+                out[i] = (byte) (bytes[i] ^ bytes[i - 1]);
+            }
+            String text = new String(out, StandardCharsets.UTF_8);
+            resp.put("mode", "Chained XOR (Feedback)");
+            resp.put("iv", String.format("0x%02X", iv & 0xFF));
+            resp.put("result", text);
+            resp.put("hex", bytesToHex(out));
+            return resp;
+        }
+
+        // 4. REPEATING-KEY / MULTI-BYTE / SINGLE-BYTE WITH KEY
+        if (key != null && !key.trim().isEmpty()) {
+            byte[] keyBytes = parseKeyBytes(key);
             byte[] out = new byte[bytes.length];
             for (int i = 0; i < bytes.length; i++) {
                 out[i] = (byte) (bytes[i] ^ keyBytes[i % keyBytes.length]);
             }
-            resp.put("result", new String(out, StandardCharsets.UTF_8));
+            String text = new String(out, StandardCharsets.UTF_8);
+            resp.put("mode", keyBytes.length == 1 ? "Single-Byte XOR" : "Multi-Byte Repeating XOR");
+            resp.put("key", key);
+            resp.put("keyHex", "0x" + bytesToHex(keyBytes));
+            resp.put("keyLength", keyBytes.length);
+            resp.put("result", text);
+            resp.put("hex", bytesToHex(out));
+            resp.put("binary", bytesToBinary(out));
             return resp;
         }
 
+        // 5. BRUTE-FORCE SINGLE-BYTE XOR (0..255)
         List<Map<String, Object>> candidates = new ArrayList<>();
         for (int k = 0; k < 256; k++) {
             byte[] decryptedBytes = new byte[bytes.length];
@@ -146,8 +242,68 @@ public class CryptoEngineService {
             }
         }
         candidates.sort((a, b) -> Long.compare((long) b.get("score"), (long) a.get("score")));
+        resp.put("mode", "Single-Byte Brute-Force");
         resp.put("candidates", candidates.subList(0, Math.min(candidates.size(), 20)));
         return resp;
+    }
+
+    private byte[] parseInputBytes(String input, String inputType) {
+        String trimmed = input.trim();
+        String type = (inputType == null) ? "auto" : inputType.toLowerCase().trim();
+
+        if ("binary".equals(type) || "bin".equals(type) || ("auto".equals(type) && trimmed.replace(" ", "").matches("^[01]{8,}$"))) {
+            String clean = trimmed.replaceAll("\\s+", "");
+            int len = clean.length() / 8;
+            byte[] b = new byte[len];
+            for (int i = 0; i < len; i++) {
+                b[i] = (byte) Integer.parseInt(clean.substring(i * 8, (i + 1) * 8), 2);
+            }
+            return b;
+        }
+
+        String hexCandidate = trimmed.replaceFirst("^(?i)0x", "").replaceAll("[\\s,]+", "");
+        if ("hex".equals(type) || ("auto".equals(type) && hexCandidate.matches("^[0-9a-fA-F]+$") && hexCandidate.length() % 2 == 0 && !hexCandidate.isEmpty())) {
+            byte[] b = new byte[hexCandidate.length() / 2];
+            for (int i = 0; i < hexCandidate.length(); i += 2) {
+                b[i / 2] = (byte) Integer.parseInt(hexCandidate.substring(i, i + 2), 16);
+            }
+            return b;
+        }
+
+        return trimmed.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private byte[] parseKeyBytes(String key) {
+        if (key == null || key.isEmpty()) return new byte[]{0};
+        String trimmed = key.trim();
+        if (trimmed.startsWith("0x") || trimmed.startsWith("0X")) {
+            String hex = trimmed.substring(2).replaceAll("[\\s,]+", "");
+            if (hex.length() % 2 == 1) hex = "0" + hex;
+            byte[] b = new byte[hex.length() / 2];
+            for (int i = 0; i < hex.length(); i += 2) {
+                b[i / 2] = (byte) Integer.parseInt(hex.substring(i, i + 2), 16);
+            }
+            return b;
+        }
+        if (trimmed.matches("^[01]{8,}$") && trimmed.length() % 8 == 0) {
+            int len = trimmed.length() / 8;
+            byte[] b = new byte[len];
+            for (int i = 0; i < len; i++) {
+                b[i] = (byte) Integer.parseInt(trimmed.substring(i * 8, (i + 1) * 8), 2);
+            }
+            return b;
+        }
+        return trimmed.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private String bytesToBinary(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            String s = Integer.toBinaryString(b & 0xFF);
+            while (s.length() < 8) s = "0" + s;
+            sb.append(s).append(" ");
+        }
+        return sb.toString().trim();
     }
 
     private double scoreEnglish(String text) {
