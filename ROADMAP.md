@@ -68,9 +68,9 @@ PHASE 5: MODULAR TOOL IMPLEMENTATION (64 TOOLS ACROSS 7 DOMAINS)
 [COMPLETED] Step 5.1.17: RotShiftTable.jsx (Simultaneous 25-rotation Caesar table)
 
 --- [5.2 Web Exploitation Suite (8 Tools)] ---
-[CURRENT]   Step 5.2.1: JwtAnalyzer.jsx (Token inspector, signature tamper & none-exploit)
-[UPCOMING]  Step 5.2.2: PayloadGen.jsx (Curated dictionary across 13 web attack categories)
-[UPCOMING]  Step 5.2.3: RequestAnalyzer.jsx + Backend Java HTTP Security Header Auditor
+[COMPLETED] Step 5.2.1: JwtAnalyzer.jsx (Token inspector, signature tamper & none-exploit)
+[COMPLETED] Step 5.2.2: PayloadGen.jsx (Curated dictionary across 13 web attack categories)
+[CURRENT]   Step 5.2.3: RequestAnalyzer.jsx + Backend Java HTTP Security Header Auditor
 [UPCOMING]  Step 5.2.4: RegexTester.jsx (Interactive regex tester with CTF presets)
 [UPCOMING]  Step 5.2.5: UrlParser.jsx (URL component decomposition)
 [UPCOMING]  Step 5.2.6: UserAgentParser.jsx (Browser, OS, device fingerprint identifier)
@@ -92,9 +92,9 @@ PHASE 5: MODULAR TOOL IMPLEMENTATION (64 TOOLS ACROSS 7 DOMAINS)
 [UPCOMING]  Step 5.3.12: Base64MediaExtractor.jsx (Data-URI image, audio, SVG previewer)
 
 --- [5.4 Network & OSINT Suite (5 Tools)] ---
-[UPCOMING]  Step 5.4.1: NetworkCalc.jsx (IPv4/IPv6 CIDR subnet & wildcard calculator)
-[UPCOMING]  Step 5.4.2: OsintWorkspace.jsx (Shodan, VirusTotal, Censys, Dork aggregator)
-[UPCOMING]  Step 5.4.3: WordlistsReference.jsx (SecLists, RockYou download cheat sheets)
+[COMPLETED] Step 5.4.1: NetworkCalc.jsx (IPv4/IPv6 CIDR subnet & wildcard calculator)
+[COMPLETED] Step 5.4.2: OsintWorkspace.jsx (Shodan, VirusTotal, Censys, Dork aggregator)
+[COMPLETED] Step 5.4.3: WordlistsReference.jsx (SecLists, RockYou download cheat sheets)
 [UPCOMING]  Step 5.4.4: WhoisReference.jsx (Domain registrar & TLD field guide)
 [UPCOMING]  Step 5.4.5: LiveWhoisDns.jsx + Backend Java TCP Port 43 Socket & Live DNS Resolver
 
