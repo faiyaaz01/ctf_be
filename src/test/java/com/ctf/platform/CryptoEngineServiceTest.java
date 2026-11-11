@@ -98,4 +98,34 @@ public class CryptoEngineServiceTest {
         Map<String, Object> res = cryptoEngineService.crackXor("01000001", "binary", "single", "B");
         assertEquals("03", res.get("hex"));
     }
+
+    @Test
+    void testEncodingLabAllFormats() {
+        String testStr = "CTF{encoding_lab_success}";
+
+        // Base64
+        Map<String, Object> b64Enc = cryptoEngineService.processEncoding(testStr, "base64", "encode");
+        Map<String, Object> b64Dec = cryptoEngineService.processEncoding((String) b64Enc.get("output"), "base64", "decode");
+        assertEquals(testStr, b64Dec.get("output"));
+
+        // Hex
+        Map<String, Object> hexEnc = cryptoEngineService.processEncoding(testStr, "hex", "encode");
+        Map<String, Object> hexDec = cryptoEngineService.processEncoding((String) hexEnc.get("output"), "hex", "decode");
+        assertEquals(testStr, hexDec.get("output"));
+
+        // Base32
+        Map<String, Object> b32Enc = cryptoEngineService.processEncoding(testStr, "base32", "encode");
+        Map<String, Object> b32Dec = cryptoEngineService.processEncoding((String) b32Enc.get("output"), "base32", "decode");
+        assertEquals(testStr, b32Dec.get("output"));
+
+        // Base58
+        Map<String, Object> b58Enc = cryptoEngineService.processEncoding(testStr, "base58", "encode");
+        Map<String, Object> b58Dec = cryptoEngineService.processEncoding((String) b58Enc.get("output"), "base58", "decode");
+        assertEquals(testStr, b58Dec.get("output"));
+
+        // Base85
+        Map<String, Object> b85Enc = cryptoEngineService.processEncoding(testStr, "base85", "encode");
+        Map<String, Object> b85Dec = cryptoEngineService.processEncoding((String) b85Enc.get("output"), "base85", "decode");
+        assertEquals(testStr, b85Dec.get("output"));
+    }
 }

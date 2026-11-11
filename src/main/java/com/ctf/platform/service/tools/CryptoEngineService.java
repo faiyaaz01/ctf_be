@@ -3,6 +3,7 @@ package com.ctf.platform.service.tools;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -381,7 +382,7 @@ public class CryptoEngineService {
                 case "hex":
                     if (isEncode) result = bytesToHex(input.getBytes(StandardCharsets.UTF_8));
                     else {
-                        String clean = input.replaceAll("[\\s0x]+", "");
+                        String clean = input.trim().replaceFirst("^(?i)0x", "").replaceAll("[\\s,]+", "");
                         byte[] b = new byte[clean.length() / 2];
                         for (int i = 0; i < clean.length(); i += 2) b[i / 2] = (byte) Integer.parseInt(clean.substring(i, i + 2), 16);
                         result = new String(b, StandardCharsets.UTF_8);
@@ -392,6 +393,10 @@ public class CryptoEngineService {
                     break;
                 case "base58":
                     result = isEncode ? encodeBase58(input.getBytes(StandardCharsets.UTF_8)) : new String(decodeBase58(input.trim()), StandardCharsets.UTF_8);
+                    break;
+                case "base85":
+                case "ascii85":
+                    result = isEncode ? encodeBase85(input.getBytes(StandardCharsets.UTF_8)) : new String(decodeBase85(input.trim()), StandardCharsets.UTF_8);
                     break;
                 default:
                     resp.put("error", "Unsupported algorithm");
@@ -476,6 +481,71 @@ public class CryptoEngineService {
         byte[] res = new byte[zeros + (raw.length - strip)];
         System.arraycopy(raw, strip, res, zeros, raw.length - strip);
         return res;
+    }
+
+    private String encodeBase85(byte[] data) {
+        StringBuilder sb = new StringBuilder();
+        int i = 0;
+        while (i < data.length) {
+            int chunkLen = Math.min(4, data.length - i);
+            long val = 0;
+            for (int j = 0; j < 4; j++) {
+                val <<= 8;
+                if (j < chunkLen) {
+                    val |= (data[i + j] & 0xFF);
+                }
+            }
+            if (val == 0 && chunkLen == 4) {
+                sb.append('z');
+            } else {
+                char[] chars = new char[5];
+                for (int j = 4; j >= 0; j--) {
+                    chars[j] = (char) ('!' + (val % 85));
+                    val /= 85;
+                }
+                for (int j = 0; j < chunkLen + 1; j++) {
+                    sb.append(chars[j]);
+                }
+            }
+            i += chunkLen;
+        }
+        return sb.toString();
+    }
+
+    private byte[] decodeBase85(String input) {
+        String clean = input.trim();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int i = 0;
+        while (i < clean.length()) {
+            char c = clean.charAt(i);
+            if (Character.isWhitespace(c)) {
+                i++;
+                continue;
+            }
+            if (c == 'z') {
+                out.write(0); out.write(0); out.write(0); out.write(0);
+                i++;
+                continue;
+            }
+            long val = 0;
+            int count = 0;
+            while (count < 5 && i < clean.length()) {
+                char ch = clean.charAt(i++);
+                if (Character.isWhitespace(ch)) continue;
+                if (ch < '!' || ch > 'u') continue;
+                val = val * 85 + (ch - '!');
+                count++;
+            }
+            if (count > 1) {
+                for (int k = count; k < 5; k++) {
+                    val = val * 85 + 84;
+                }
+                for (int k = 0; k < count - 1; k++) {
+                    out.write((int) ((val >> (24 - 8 * k)) & 0xFF));
+                }
+            }
+        }
+        return out.toByteArray();
     }
 
     // ── 5. NUMBER RADIX CONVERTER ─────────────────────────────────────
