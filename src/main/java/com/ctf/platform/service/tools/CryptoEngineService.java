@@ -644,26 +644,86 @@ public class CryptoEngineService {
         return resp;
     }
 
-    // ── 6. RSA HELPER (BASIC KEYS) ────────────────────────────────────
+    // ── 6. RSA HELPER (BASIC KEYS & DECRYPTION) ────────────────────────
     public Map<String, Object> computeRsa(String pStr, String qStr, String eStr) {
+        return computeRsa(pStr, qStr, eStr, null);
+    }
+
+    public Map<String, Object> computeRsa(String pStr, String qStr, String eStr, String cStr) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            BigInteger p = new BigInteger(pStr.trim());
-            BigInteger q = new BigInteger(qStr.trim());
-            BigInteger e = new BigInteger(eStr.trim());
+            if (pStr == null || pStr.isBlank() || qStr == null || qStr.isBlank()) {
+                resp.put("error", "Primes p and q are required.");
+                return resp;
+            }
+            BigInteger p = parseRsaBigInt(pStr);
+            BigInteger q = parseRsaBigInt(qStr);
+            BigInteger e = (eStr != null && !eStr.isBlank()) ? parseRsaBigInt(eStr) : BigInteger.valueOf(65537);
 
             BigInteger n = p.multiply(q);
-            BigInteger phi = p.subtract(BigInteger.ONE).multiply(q.subtract(BigInteger.ONE));
-            BigInteger d = e.modInverse(phi);
+            BigInteger pMinus1 = p.subtract(BigInteger.ONE);
+            BigInteger qMinus1 = q.subtract(BigInteger.ONE);
+            BigInteger phi = pMinus1.multiply(qMinus1);
 
-            resp.put("n", n.toString());
-            resp.put("phi", phi.toString());
-            resp.put("d", d.toString());
+            resp.put("p", p.toString(10));
+            resp.put("q", q.toString(10));
+            resp.put("e", e.toString(10));
+            resp.put("n", n.toString(10));
+            resp.put("nHex", "0x" + n.toString(16).toUpperCase());
+            resp.put("phi", phi.toString(10));
+            resp.put("phiHex", "0x" + phi.toString(16).toUpperCase());
             resp.put("bitLength", n.bitLength());
+
+            BigInteger gcd = e.gcd(phi);
+            if (!gcd.equals(BigInteger.ONE)) {
+                resp.put("coprime", false);
+                resp.put("gcd", gcd.toString(10));
+                resp.put("error", "e is not coprime with phi(N), gcd(e, phi) = " + gcd + ". Private key d does not exist.");
+                return resp;
+            }
+            resp.put("coprime", true);
+
+            BigInteger d = e.modInverse(phi);
+            resp.put("d", d.toString(10));
+            resp.put("dHex", "0x" + d.toString(16).toUpperCase());
+
+            // CRT parameters (standard CTF / PKCS#1)
+            BigInteger dp = d.mod(pMinus1);
+            BigInteger dq = d.mod(qMinus1);
+            BigInteger qInv = q.modInverse(p);
+            resp.put("dp", dp.toString(10));
+            resp.put("dq", dq.toString(10));
+            resp.put("qInv", qInv.toString(10));
+
+            // Optional Decryption: m = c^d mod n
+            if (cStr != null && !cStr.isBlank()) {
+                BigInteger c = parseRsaBigInt(cStr);
+                BigInteger m = c.modPow(d, n);
+                resp.put("c", c.toString(10));
+                resp.put("cHex", "0x" + c.toString(16).toUpperCase());
+                resp.put("m", m.toString(10));
+                resp.put("mHex", "0x" + m.toString(16).toUpperCase());
+
+                byte[] mBytes = m.toByteArray();
+                int offset = (mBytes.length > 1 && mBytes[0] == 0) ? 1 : 0;
+                String mAscii = new String(mBytes, offset, mBytes.length - offset, StandardCharsets.UTF_8);
+                resp.put("mAscii", mAscii);
+            }
         } catch (Exception ex) {
             resp.put("error", "RSA computation failed: " + ex.getMessage());
         }
         return resp;
+    }
+
+    private BigInteger parseRsaBigInt(String val) {
+        String clean = val.trim().replaceAll("[\\s,]+", "");
+        if (clean.startsWith("0x") || clean.startsWith("0X")) {
+            return new BigInteger(clean.substring(2), 16);
+        }
+        if (clean.matches("(?i)^[0-9a-f]+$") && clean.matches(".*[a-fA-F].*")) {
+            return new BigInteger(clean, 16);
+        }
+        return new BigInteger(clean, 10);
     }
 
     // ── 7. ATBASH CIPHER ──────────────────────────────────────────────

@@ -153,4 +153,23 @@ public class CryptoEngineServiceTest {
         assertNotNull(single);
         assertEquals("0x40490FDB", single.get("hex"));
     }
+
+    @Test
+    void testRsaHelperCalculationAndDecryption() {
+        // p = 61, q = 53, e = 17 -> N = 3233, phi = 3120, d = 2753
+        // If m = 65 ('A'), c = 65^17 mod 3233 = 2790
+        Map<String, Object> res = cryptoEngineService.computeRsa("61", "53", "17", "2790");
+        assertEquals("3233", res.get("n"));
+        assertEquals("3120", res.get("phi"));
+        assertEquals("2753", res.get("d"));
+        assertEquals(12, res.get("bitLength"));
+        assertEquals("65", res.get("m"));
+        assertEquals("A", res.get("mAscii"));
+
+        // Test with hex input: p = 0x3D (61), q = 0x35 (53)
+        Map<String, Object> hexInputRes = cryptoEngineService.computeRsa("0x3D", "0x35", "17", "2790");
+        assertEquals("3233", hexInputRes.get("n"));
+        assertEquals("2753", hexInputRes.get("d"));
+        assertEquals("A", hexInputRes.get("mAscii"));
+    }
 }

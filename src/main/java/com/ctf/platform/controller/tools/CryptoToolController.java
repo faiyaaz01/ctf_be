@@ -56,7 +56,8 @@ public class CryptoToolController {
         String p = body.getOrDefault("p", "");
         String q = body.getOrDefault("q", "");
         String e = body.getOrDefault("e", "65537");
-        return ResponseEntity.ok(cryptoEngineService.computeRsa(p, q, e));
+        String c = body.getOrDefault("c", "");
+        return ResponseEntity.ok(cryptoEngineService.computeRsa(p, q, e, c));
     }
 
     @PostMapping("/atbash")
