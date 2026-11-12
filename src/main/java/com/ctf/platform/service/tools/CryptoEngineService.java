@@ -552,39 +552,92 @@ public class CryptoEngineService {
     public Map<String, Object> convertNumber(String value, String fromRadix) {
         Map<String, Object> resp = new HashMap<>();
         try {
+            if (value == null || value.trim().isEmpty()) {
+                resp.put("error", "Input value is required");
+                return resp;
+            }
             BigInteger num;
             String clean = value.trim().replaceAll("\\s+", "");
-            switch (fromRadix.toLowerCase()) {
-                case "hex":
-                    clean = clean.replaceAll("^0x", "");
-                    num = new BigInteger(clean, 16);
-                    break;
-                case "octal":
-                    num = new BigInteger(clean, 8);
-                    break;
-                case "binary":
-                    num = new BigInteger(clean, 2);
-                    break;
-                case "ascii":
-                    num = new BigInteger(1, clean.getBytes(StandardCharsets.UTF_8));
-                    break;
-                default: // dec
-                    num = new BigInteger(clean, 10);
+            String radix = (fromRadix == null) ? "dec" : fromRadix.toLowerCase().trim();
+
+            if ("float".equals(radix) || (("dec".equals(radix) || "auto".equals(radix)) && clean.contains("."))) {
+                int bits = Float.floatToIntBits(Float.parseFloat(clean));
+                num = BigInteger.valueOf(bits & 0xFFFFFFFFL);
+            } else if ("double".equals(radix)) {
+                long bits = Double.doubleToRawLongBits(Double.parseDouble(clean));
+                num = BigInteger.valueOf(bits);
+            } else {
+                switch (radix) {
+                    case "hex":
+                        clean = clean.replaceFirst("^(?i)0x", "");
+                        num = new BigInteger(clean, 16);
+                        break;
+                    case "octal":
+                    case "oct":
+                        clean = clean.replaceFirst("^0", "");
+                        if (clean.isEmpty()) clean = "0";
+                        num = new BigInteger(clean, 8);
+                        break;
+                    case "binary":
+                    case "bin":
+                        clean = clean.replaceFirst("^(?i)0b", "");
+                        num = new BigInteger(clean, 2);
+                        break;
+                    case "ascii":
+                    case "text":
+                        num = new BigInteger(1, clean.getBytes(StandardCharsets.UTF_8));
+                        break;
+                    default: // dec
+                        clean = clean.replaceFirst("^(?i)0d", "");
+                        num = new BigInteger(clean, 10);
+                }
             }
 
             resp.put("decimal", num.toString(10));
             resp.put("hex", "0x" + num.toString(16).toUpperCase());
             resp.put("octal", "0" + num.toString(8));
             resp.put("binary", num.toString(2));
-            resp.put("ascii", new String(num.toByteArray(), StandardCharsets.UTF_8));
+            resp.put("bitLength", num.bitLength());
+            resp.put("byteLength", (num.bitLength() + 7) / 8);
 
-            // Float IEEE-754 representation if fits in 32/64 bit
-            if (num.bitLength() <= 32) {
-                resp.put("ieee754_float", Float.intBitsToFloat(num.intValue()));
-            }
-            if (num.bitLength() <= 64) {
-                resp.put("ieee754_double", Double.longBitsToDouble(num.longValue()));
-            }
+            // ASCII printable interpretation
+            byte[] rawBytes = num.toByteArray();
+            resp.put("ascii", new String(rawBytes, StandardCharsets.UTF_8));
+
+            // IEEE-754 32-bit Single Precision
+            int intBits = num.intValue();
+            float fVal = Float.intBitsToFloat(intBits);
+            int sign32 = (intBits >>> 31) & 1;
+            int exp32 = (intBits >>> 23) & 0xFF;
+            int mant32 = intBits & 0x7FFFFF;
+            String bin32 = String.format("%32s", Integer.toBinaryString(intBits)).replace(' ', '0');
+
+            Map<String, Object> ieeeFloat = new HashMap<>();
+            ieeeFloat.put("value", Float.isNaN(fVal) ? "NaN" : Float.isInfinite(fVal) ? (fVal > 0 ? "+Infinity" : "-Infinity") : fVal);
+            ieeeFloat.put("hex", String.format("0x%08X", intBits));
+            ieeeFloat.put("binary", bin32);
+            ieeeFloat.put("sign", sign32);
+            ieeeFloat.put("exponent", exp32 + " (bias: " + (exp32 - 127) + ")");
+            ieeeFloat.put("mantissa", "0x" + Integer.toHexString(mant32).toUpperCase());
+            resp.put("ieee754_single", ieeeFloat);
+
+            // IEEE-754 64-bit Double Precision
+            long longBits = num.longValue();
+            double dVal = Double.longBitsToDouble(longBits);
+            long sign64 = (longBits >>> 63) & 1L;
+            long exp64 = (longBits >>> 52) & 0x7FFL;
+            long mant64 = longBits & 0xFFFFFFFFFFFFFL;
+            String bin64 = String.format("%64s", Long.toBinaryString(longBits)).replace(' ', '0');
+
+            Map<String, Object> ieeeDouble = new HashMap<>();
+            ieeeDouble.put("value", Double.isNaN(dVal) ? "NaN" : Double.isInfinite(dVal) ? (dVal > 0 ? "+Infinity" : "-Infinity") : dVal);
+            ieeeDouble.put("hex", String.format("0x%016X", longBits));
+            ieeeDouble.put("binary", bin64);
+            ieeeDouble.put("sign", sign64);
+            ieeeDouble.put("exponent", exp64 + " (bias: " + (exp64 - 1023) + ")");
+            ieeeDouble.put("mantissa", "0x" + Long.toHexString(mant64).toUpperCase());
+            resp.put("ieee754_double", ieeeDouble);
+
         } catch (Exception e) {
             resp.put("error", "Conversion failed: " + e.getMessage());
         }

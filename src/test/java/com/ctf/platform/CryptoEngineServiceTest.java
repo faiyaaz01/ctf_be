@@ -128,4 +128,29 @@ public class CryptoEngineServiceTest {
         Map<String, Object> b85Dec = cryptoEngineService.processEncoding((String) b85Enc.get("output"), "base85", "decode");
         assertEquals(testStr, b85Dec.get("output"));
     }
+
+    @Test
+    void testNumberConverterRadixAndIeee754() {
+        // Decimal 42 -> Hex 0x2A, Octal 052, Binary 101010, ASCII '*'
+        Map<String, Object> decRes = cryptoEngineService.convertNumber("42", "dec");
+        assertEquals("42", decRes.get("decimal"));
+        assertEquals("0x2A", decRes.get("hex"));
+        assertEquals("052", decRes.get("octal"));
+        assertEquals("101010", decRes.get("binary"));
+        assertEquals("*", decRes.get("ascii"));
+        assertNotNull(decRes.get("ieee754_single"));
+
+        // Hex 0x41424344 -> ASCII ABCD
+        Map<String, Object> hexRes = cryptoEngineService.convertNumber("0x41424344", "hex");
+        assertEquals("1094861636", hexRes.get("decimal"));
+        assertEquals("ABCD", hexRes.get("ascii"));
+
+        // Float 3.1415927 -> IEEE-754 Hex 0x40490FDB
+        Map<String, Object> floatRes = cryptoEngineService.convertNumber("3.1415927", "float");
+        assertEquals("0x40490FDB", floatRes.get("hex"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> single = (Map<String, Object>) floatRes.get("ieee754_single");
+        assertNotNull(single);
+        assertEquals("0x40490FDB", single.get("hex"));
+    }
 }
