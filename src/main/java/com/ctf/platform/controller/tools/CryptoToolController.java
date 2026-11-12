@@ -61,27 +61,34 @@ public class CryptoToolController {
     }
 
     @PostMapping("/atbash")
-    public ResponseEntity<Map<String, String>> atbash(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> atbash(@RequestBody Map<String, String> body) {
         String text = body.getOrDefault("text", "");
         return ResponseEntity.ok(cryptoEngineService.atbash(text));
     }
 
     @PostMapping("/railfence")
-    public ResponseEntity<Map<String, String>> railFence(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> railFence(@RequestBody Map<String, String> body) {
         String text = body.getOrDefault("text", "");
         int rails = 3;
         try {
             rails = Integer.parseInt(body.getOrDefault("rails", "3"));
         } catch (NumberFormatException ignored) {}
+        int offset = 0;
+        try {
+            offset = Integer.parseInt(body.getOrDefault("offset", "0"));
+        } catch (NumberFormatException ignored) {}
         String mode = body.getOrDefault("mode", "decrypt");
-        return ResponseEntity.ok(cryptoEngineService.railFence(text, rails, mode));
+        return ResponseEntity.ok(cryptoEngineService.railFence(text, rails, offset, mode));
     }
 
     @PostMapping("/baconian")
-    public ResponseEntity<Map<String, String>> baconian(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> baconian(@RequestBody Map<String, String> body) {
         String text = body.getOrDefault("text", "");
         String mode = body.getOrDefault("mode", "decrypt");
-        return ResponseEntity.ok(cryptoEngineService.baconian(text, mode));
+        String variant = body.getOrDefault("variant", "standard");
+        String aChar = body.getOrDefault("aChar", "A");
+        String bChar = body.getOrDefault("bChar", "B");
+        return ResponseEntity.ok(cryptoEngineService.baconian(text, mode, variant, aChar, bChar));
     }
 
     @PostMapping("/bitwise")

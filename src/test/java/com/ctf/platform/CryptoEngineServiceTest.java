@@ -172,4 +172,64 @@ public class CryptoEngineServiceTest {
         assertEquals("2753", hexInputRes.get("d"));
         assertEquals("A", hexInputRes.get("mAscii"));
     }
+
+    @Test
+    void testAtbashCipher() {
+        String input = "flag{atbash_cipher_1337}";
+        Map<String, Object> enc = cryptoEngineService.atbash(input);
+        String cipher = (String) enc.get("result");
+        assertEquals("uozt{zgyzhs_xrksvi_1337}", cipher);
+
+        // Symmetric check: applying Atbash again decrypts it
+        Map<String, Object> dec = cryptoEngineService.atbash(cipher);
+        assertEquals(input, dec.get("result"));
+    }
+
+    @Test
+    void testRailFenceCipher() {
+        String plain = "WEAREDISCOVEREDFLEEATONCE";
+        // 3 rails, offset 0 -> Row 0: WECRLTE, Row 1: ERDSOEEFEAOC, Row 2: AIVDEN
+        Map<String, Object> enc = cryptoEngineService.railFence(plain, 3, 0, "encrypt");
+        String ct = (String) enc.get("result");
+        assertEquals("WECRLTEERDSOEEFEAOCAIVDEN", ct);
+
+        // Decrypt
+        Map<String, Object> dec = cryptoEngineService.railFence(ct, 3, 0, "decrypt");
+        assertEquals(plain, dec.get("result"));
+
+        // Brute force rails
+        Map<String, Object> brute = cryptoEngineService.railFence(ct, 0, 0, "brute");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> candidates = (List<Map<String, Object>>) brute.get("candidates");
+        assertNotNull(candidates);
+        assertFalse(candidates.isEmpty());
+        // Verify 3 rails candidate has plain text
+        boolean found = candidates.stream().anyMatch(c -> plain.equals(c.get("text")) && (int) c.get("rails") == 3);
+        assertTrue(found);
+    }
+
+    @Test
+    void testBaconianCipher() {
+        String msg = "HELLO";
+
+        // Full 26-letter variant
+        Map<String, Object> encFull = cryptoEngineService.baconian(msg, "encode", "full", "A", "B");
+        String ctFull = (String) encFull.get("result");
+        // H=AABBB, E=AABAA, L=ABABB, L=ABABB, O=ABBBA
+        assertEquals("AABBB AABAA ABABB ABABB ABBBA", ctFull);
+
+        Map<String, Object> decFull = cryptoEngineService.baconian(ctFull, "decode", "full", "A", "B");
+        assertEquals("HELLO", decFull.get("result"));
+
+        // Binary 0/1 decoding: 00111 00100 01011 01011 01110
+        String binCt = "0011100100010110101101110";
+        Map<String, Object> decBin = cryptoEngineService.baconian(binCt, "decode", "full", "A", "B");
+        assertEquals("HELLO", decBin.get("fullDecoded"));
+
+        // Standard 24-letter variant (I/J)
+        Map<String, Object> encStd = cryptoEngineService.baconian("JOY", "encode", "standard", "A", "B");
+        Map<String, Object> decStd = cryptoEngineService.baconian((String) encStd.get("result"), "decode", "standard", "A", "B");
+        // J maps to I/J in standard Baconian
+        assertTrue(((String) decStd.get("result")).contains("I/J"));
+    }
 }

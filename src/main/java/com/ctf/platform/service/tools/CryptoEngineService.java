@@ -727,82 +727,257 @@ public class CryptoEngineService {
     }
 
     // ── 7. ATBASH CIPHER ──────────────────────────────────────────────
-    public Map<String, String> atbash(String text) {
-        if (text == null) return Map.of("result", "");
+    public Map<String, Object> atbash(String text) {
+        if (text == null) text = "";
         StringBuilder sb = new StringBuilder();
+        int transformedCount = 0;
         for (char c : text.toCharArray()) {
-            if (c >= 'a' && c <= 'z') sb.append((char) ('z' - (c - 'a')));
-            else if (c >= 'A' && c <= 'Z') sb.append((char) ('Z' - (c - 'A')));
-            else sb.append(c);
+            if (c >= 'a' && c <= 'z') {
+                sb.append((char) ('z' - (c - 'a')));
+                transformedCount++;
+            } else if (c >= 'A' && c <= 'Z') {
+                sb.append((char) ('Z' - (c - 'A')));
+                transformedCount++;
+            } else {
+                sb.append(c);
+            }
         }
-        return Map.of("result", sb.toString());
+        String res = sb.toString();
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("result", res);
+        resp.put("input", text);
+        resp.put("length", text.length());
+        resp.put("lettersSwapped", transformedCount);
+        return resp;
     }
 
     // ── 8. RAIL FENCE CIPHER ──────────────────────────────────────────
-    public Map<String, String> railFence(String text, int rails, String mode) {
-        if (text == null || rails <= 1) return Map.of("result", text != null ? text : "");
-        if ("decrypt".equalsIgnoreCase(mode)) {
-            char[] dec = new char[text.length()];
-            boolean[][] mark = new boolean[rails][text.length()];
-            int row = 0, dir = 1;
-            for (int i = 0; i < text.length(); i++) {
-                mark[row][i] = true;
-                if (row == 0) dir = 1;
-                else if (row == rails - 1) dir = -1;
-                row += dir;
+    public Map<String, Object> railFence(String text, int rails, String mode) {
+        return railFence(text, rails, 0, mode);
+    }
+
+    public Map<String, Object> railFence(String text, int rails, int offset, String mode) {
+        Map<String, Object> resp = new HashMap<>();
+        if (text == null) text = "";
+        resp.put("input", text);
+        resp.put("rails", rails);
+        resp.put("offset", offset);
+        resp.put("mode", mode);
+
+        if ("brute".equalsIgnoreCase(mode)) {
+            List<Map<String, Object>> candidates = new ArrayList<>();
+            int maxRails = Math.min(20, Math.max(2, text.length() - 1));
+            for (int r = 2; r <= maxRails; r++) {
+                Map<String, Object> single = executeRailFence(text, r, 0, "decrypt");
+                String decText = (String) single.get("result");
+                long score = Math.round(scoreEnglish(decText));
+                Map<String, Object> cand = new HashMap<>();
+                cand.put("rails", r);
+                cand.put("offset", 0);
+                cand.put("text", decText);
+                cand.put("score", score);
+                candidates.add(cand);
             }
-            int idx = 0;
+            candidates.sort((a, b) -> Long.compare((long) b.get("score"), (long) a.get("score")));
+            resp.put("candidates", candidates);
+            resp.put("result", candidates.isEmpty() ? "" : candidates.get(0).get("text"));
+            return resp;
+        }
+
+        Map<String, Object> single = executeRailFence(text, rails, offset, mode);
+        resp.putAll(single);
+        return resp;
+    }
+
+    private Map<String, Object> executeRailFence(String text, int rails, int offset, String mode) {
+        Map<String, Object> resp = new HashMap<>();
+        if (rails <= 1 || text.isEmpty()) {
+            resp.put("result", text);
+            resp.put("visualFence", text);
+            return resp;
+        }
+
+        int n = text.length();
+        int cycle = 2 * (rails - 1);
+        int effOffset = ((offset % cycle) + cycle) % cycle;
+
+        int[] rowAssignment = new int[n];
+        for (int i = 0; i < n; i++) {
+            int t = (i + effOffset) % cycle;
+            rowAssignment[i] = t < rails ? t : cycle - t;
+        }
+
+        if ("encrypt".equalsIgnoreCase(mode) || "encode".equalsIgnoreCase(mode)) {
+            StringBuilder[] fences = new StringBuilder[rails];
+            for (int r = 0; r < rails; r++) fences[r] = new StringBuilder();
+            for (int i = 0; i < n; i++) {
+                fences[rowAssignment[i]].append(text.charAt(i));
+            }
+            StringBuilder result = new StringBuilder();
+            for (StringBuilder f : fences) result.append(f);
+            resp.put("result", result.toString());
+        } else { // decrypt
+            int[] counts = new int[rails];
+            for (int r : rowAssignment) counts[r]++;
+
+            int[] startIdx = new int[rails];
+            int cur = 0;
             for (int r = 0; r < rails; r++) {
-                for (int c = 0; c < text.length(); c++) {
-                    if (mark[r][c] && idx < text.length()) {
-                        dec[c] = text.charAt(idx++);
-                    }
+                startIdx[r] = cur;
+                cur += counts[r];
+            }
+            int[] readIdx = startIdx.clone();
+
+            char[] plain = new char[n];
+            for (int i = 0; i < n; i++) {
+                int r = rowAssignment[i];
+                if (readIdx[r] < n) {
+                    plain[i] = text.charAt(readIdx[r]++);
                 }
             }
-            return Map.of("result", new String(dec));
-        } else {
-            StringBuilder[] fences = new StringBuilder[rails];
-            for (int i = 0; i < rails; i++) fences[i] = new StringBuilder();
-            int r = 0, dir = 1;
-            for (char c : text.toCharArray()) {
-                fences[r].append(c);
-                if (r == 0) dir = 1;
-                else if (r == rails - 1) dir = -1;
-                r += dir;
-            }
-            StringBuilder res = new StringBuilder();
-            for (StringBuilder f : fences) res.append(f);
-            return Map.of("result", res.toString());
+            resp.put("result", new String(plain));
         }
+
+        // Generate ASCII visual fence preview (up to first 40 chars for clean UI presentation)
+        int previewLen = Math.min(n, 40);
+        char[][] grid = new char[rails][previewLen];
+        for (char[] row : grid) Arrays.fill(row, '.');
+        for (int i = 0; i < previewLen; i++) {
+            grid[rowAssignment[i]][i] = text.charAt(i);
+        }
+        StringBuilder visual = new StringBuilder();
+        for (int r = 0; r < rails; r++) {
+            for (int c = 0; c < previewLen; c++) {
+                visual.append(grid[r][c]).append(' ');
+            }
+            if (r < rails - 1) visual.append("\n");
+        }
+        resp.put("visualFence", visual.toString());
+        return resp;
     }
 
     // ── 9. BACONIAN CIPHER ────────────────────────────────────────────
-    public Map<String, String> baconian(String text, String mode) {
-        if (text == null) return Map.of("result", "");
-        String[] codes = {
-                "AAAAA","AAAAB","AAABA","AAABB","AABAA","AABAB","AABBA","AABBB","ABAAA","ABAAB",
-                "ABABA","ABABB","ABBAA","ABBAB","ABBBA","ABBBB","BAAAA","BAAAB","BAABA","BAABB",
-                "BABAA","BABAB","BABBA","BABBB","BBAAA","BBAAB"
-        };
-        if ("decrypt".equalsIgnoreCase(mode)) {
-            String clean = text.replaceAll("[^ABab]", "").toUpperCase();
+    // Standard 24-letter (I=J, U=V)
+    private static final String[] BACON_STD_CODES = {
+        "AAAAA","AAAAB","AAABA","AAABB","AABAA","AABAB","AABBA","AABBB",
+        "ABAAA","ABAAA","ABAAB","ABABA","ABABB","ABBAA","ABBAB","ABBBA",
+        "ABBBB","BAAAA","BAAAB","BAABA","BAABB","BAABB","BABAA","BABAB",
+        "BABBA","BABBB"
+    };
+    // Full 26-letter
+    private static final String[] BACON_FULL_CODES = {
+        "AAAAA","AAAAB","AAABA","AAABB","AABAA","AABAB","AABBA","AABBB",
+        "ABAAA","ABAAB","ABABA","ABABB","ABBAA","ABBAB","ABBBA","ABBBB",
+        "BAAAA","BAAAB","BAABA","BAABB","BABAA","BABAB","BABBA","BABBB",
+        "BBAAA","BBAAB"
+    };
+
+    public Map<String, Object> baconian(String text, String mode) {
+        return baconian(text, mode, "standard", "A", "B");
+    }
+
+    public Map<String, Object> baconian(String text, String mode, String variant, String aChar, String bChar) {
+        Map<String, Object> resp = new HashMap<>();
+        if (text == null) text = "";
+        boolean isFull = "full".equalsIgnoreCase(variant) || "26".equalsIgnoreCase(variant);
+        String[] codes = isFull ? BACON_FULL_CODES : BACON_STD_CODES;
+        String aSym = (aChar != null && !aChar.isEmpty()) ? aChar.substring(0, 1) : "A";
+        String bSym = (bChar != null && !bChar.isEmpty()) ? bChar.substring(0, 1) : "B";
+
+        resp.put("input", text);
+        resp.put("mode", mode);
+        resp.put("variant", isFull ? "full26" : "standard24");
+
+        if ("encrypt".equalsIgnoreCase(mode) || "encode".equalsIgnoreCase(mode)) {
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i + 5 <= clean.length(); i += 5) {
-                String chunk = clean.substring(i, i + 5);
-                int found = -1;
-                for (int j = 0; j < codes.length; j++) {
-                    if (codes[j].equals(chunk)) { found = j; break; }
-                }
-                sb.append(found != -1 ? (char) ('A' + found) : '?');
-            }
-            return Map.of("result", sb.toString());
-        } else {
-            StringBuilder sb = new StringBuilder();
+            StringBuilder customSb = new StringBuilder();
             for (char c : text.toUpperCase().toCharArray()) {
-                if (c >= 'A' && c <= 'Z') sb.append(codes[c - 'A']).append(" ");
+                if (c >= 'A' && c <= 'Z') {
+                    String code = codes[c - 'A'];
+                    sb.append(code).append(" ");
+                    customSb.append(code.replace("A", aSym).replace("B", bSym)).append(" ");
+                }
             }
-            return Map.of("result", sb.toString().trim());
+            String res = customSb.toString().trim();
+            resp.put("result", res);
+            resp.put("standardAB", sb.toString().trim());
+            return resp;
         }
+
+        // DECODE
+        // Detect Steganography: if text contains both upper and lower case letters and not purely A/B/0/1
+        String normalized;
+        long upperCount = text.chars().filter(Character::isUpperCase).count();
+        long lowerCount = text.chars().filter(Character::isLowerCase).count();
+        boolean isStego = upperCount > 2 && lowerCount > 2 && !text.matches("(?i)^[\\sAB01]+$");
+
+        if (isStego) {
+            // Case-based steganography: uppercase = B, lowercase = A
+            StringBuilder stegoNorm = new StringBuilder();
+            for (char c : text.toCharArray()) {
+                if (Character.isUpperCase(c)) stegoNorm.append("B");
+                else if (Character.isLowerCase(c)) stegoNorm.append("A");
+            }
+            normalized = stegoNorm.toString();
+            resp.put("detectedStego", true);
+        } else {
+            // Standard A/B, 0/1, or custom symbols
+            normalized = text.replaceAll("[^A-Za-z0-9]", "");
+            if (normalized.matches("^[01]+$")) {
+                normalized = normalized.replace('0', 'A').replace('1', 'B');
+            } else if (!aSym.equalsIgnoreCase("A") || !bSym.equalsIgnoreCase("B")) {
+                normalized = normalized.replace(aSym.charAt(0), 'A')
+                                       .replace(Character.toLowerCase(aSym.charAt(0)), 'A')
+                                       .replace(bSym.charAt(0), 'B')
+                                       .replace(Character.toLowerCase(bSym.charAt(0)), 'B');
+            }
+            normalized = normalized.replaceAll("[^ABab]", "").toUpperCase();
+        }
+
+        resp.put("normalizedBits", normalized);
+
+        // Decode primary variant
+        String decStd = decodeBaconBits(normalized, BACON_STD_CODES, false);
+        String decFull = decodeBaconBits(normalized, BACON_FULL_CODES, true);
+
+        // Also decode inverse (A<->B) in case polarities are reversed
+        String inverted = normalized.replace('A', 'X').replace('B', 'A').replace('X', 'B');
+        String decStdInv = decodeBaconBits(inverted, BACON_STD_CODES, false);
+        String decFullInv = decodeBaconBits(inverted, BACON_FULL_CODES, true);
+
+        resp.put("result", isFull ? decFull : decStd);
+        resp.put("standardDecoded", decStd);
+        resp.put("fullDecoded", decFull);
+        resp.put("invertedStandard", decStdInv);
+        resp.put("invertedFull", decFullInv);
+
+        return resp;
+    }
+
+    private String decodeBaconBits(String bits, String[] codes, boolean isFull) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i + 5 <= bits.length(); i += 5) {
+            String chunk = bits.substring(i, i + 5);
+            int found = -1;
+            for (int j = 0; j < codes.length; j++) {
+                if (codes[j].equals(chunk)) {
+                    found = j;
+                    break;
+                }
+            }
+            if (found != -1) {
+                if (!isFull && (found == 8 || found == 9)) {
+                    sb.append("I/J");
+                } else if (!isFull && (found == 20 || found == 21)) {
+                    sb.append("U/V");
+                } else {
+                    sb.append((char) ('A' + found));
+                }
+            } else {
+                sb.append('?');
+            }
+        }
+        return sb.toString();
     }
 
     // ── 10. BITWISE CALCULATOR ────────────────────────────────────────
