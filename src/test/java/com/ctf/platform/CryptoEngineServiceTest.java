@@ -232,4 +232,93 @@ public class CryptoEngineServiceTest {
         // J maps to I/J in standard Baconian
         assertTrue(((String) decStd.get("result")).contains("I/J"));
     }
+
+    @Test
+    void testBitwiseCalculatorOperations() {
+        // 8-bit: a = 0xAA (10101010), b = 0x55 (01010101)
+        Map<String, Object> andRes = cryptoEngineService.bitwiseCalc("0xAA", "0x55", "AND", 8);
+        assertEquals("0", andRes.get("unsignedDec"));
+        assertEquals("0x00", andRes.get("hex"));
+
+        Map<String, Object> orRes = cryptoEngineService.bitwiseCalc("0xAA", "0x55", "OR", 8);
+        assertEquals("255", orRes.get("unsignedDec"));
+        assertEquals("0xFF", orRes.get("hex"));
+
+        Map<String, Object> rolRes = cryptoEngineService.bitwiseCalc("0xAA", "1", "ROL", 8);
+        assertEquals("0x55", rolRes.get("hex"));
+
+        Map<String, Object> rorRes = cryptoEngineService.bitwiseCalc("0xAA", "1", "ROR", 8);
+        assertEquals("0x55", rorRes.get("hex"));
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> grid = (List<Map<String, Object>>) rolRes.get("bitGrid");
+        assertNotNull(grid);
+        assertEquals(8, grid.size());
+    }
+
+    @Test
+    void testRsaAttackLabAttacks() {
+        // 1. Wiener Attack
+        Map<String, String> wienerParams = Map.of("n", "1520961493", "e", "1415994953");
+        Map<String, Object> wienerRes = cryptoEngineService.rsaAttack("wiener", wienerParams);
+        assertEquals("success", wienerRes.get("status"));
+        assertEquals("29", wienerRes.get("d"));
+
+        // 2. Fermat Factorization (Close primes 100019, 100003 -> n = 10002200057)
+        Map<String, String> fermatParams = Map.of("n", "10002200057");
+        Map<String, Object> fermatRes = cryptoEngineService.rsaAttack("fermat", fermatParams);
+        assertEquals("success", fermatRes.get("status"));
+        assertEquals("100019", fermatRes.get("p"));
+        assertEquals("100003", fermatRes.get("q"));
+
+        // 3. Hastad Broadcast Attack (e=3, m=42 -> '*')
+        Map<String, String> hastadParams = Map.of(
+                "e", "3",
+                "moduli", "10007, 10009, 10037",
+                "ciphertexts", "4039, 4025, 3829"
+        );
+        Map<String, Object> hastadRes = cryptoEngineService.rsaAttack("hastad", hastadParams);
+        assertEquals("success", hastadRes.get("status"));
+        assertEquals("42", hastadRes.get("m"));
+        assertEquals("*", hastadRes.get("mAscii"));
+
+        // 4. Common Modulus Attack (n=3233, e1=7, e2=11, c1=1317, c2=2811 -> m=65 'A')
+        Map<String, String> cmParams = Map.of(
+                "n", "3233",
+                "e1", "7",
+                "e2", "11",
+                "c1", "1317",
+                "c2", "2811"
+        );
+        Map<String, Object> cmRes = cryptoEngineService.rsaAttack("common_modulus", cmParams);
+        assertEquals("success", cmRes.get("status"));
+        assertEquals("65", cmRes.get("m"));
+        assertEquals("A", cmRes.get("mAscii"));
+    }
+
+    @Test
+    void testVigenereKeyedAndAutomatedCrack() {
+        String plain = "CRYPTOISFUNWHENYOUKNOWHOWCIPHERSWORKANDVIGENEREISCLASSICANDPOPULARINCOMPETITIONSTHISFLAGISCTFSECRETANDCRYPTOGRAPHYISVERYINTERESTINGTOLEARN";
+        String key = "LEMON";
+
+        // Encrypt
+        Map<String, Object> enc = cryptoEngineService.solveVigenere(plain, key, "encrypt");
+        String ct = (String) enc.get("result");
+        assertNotNull(ct);
+        assertNotEquals(plain, ct);
+
+        // Decrypt with key
+        Map<String, Object> dec = cryptoEngineService.solveVigenere(ct, key, "decrypt");
+        assertEquals(plain, dec.get("result"));
+
+        // Auto crack without key
+        Map<String, Object> crack = cryptoEngineService.solveVigenere(ct, "", "crack");
+        assertNotNull(crack.get("candidates"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> cands = (List<Map<String, Object>>) crack.get("candidates");
+        assertFalse(cands.isEmpty());
+        // Verify key LEMON was recovered
+        boolean recovered = cands.stream().anyMatch(c -> key.equals(c.get("key")) || plain.equals(c.get("decrypted")));
+        assertTrue(recovered);
+    }
 }

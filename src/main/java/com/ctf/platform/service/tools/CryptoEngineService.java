@@ -984,51 +984,416 @@ public class CryptoEngineService {
     public Map<String, Object> bitwiseCalc(String aStr, String bStr, String op, int bits) {
         Map<String, Object> resp = new HashMap<>();
         try {
-            long a = Long.decode(aStr.trim());
-            long b = (bStr != null && !bStr.trim().isEmpty()) ? Long.decode(bStr.trim()) : 0L;
-            long mask = (bits == 32) ? 0xFFFFFFFFL : (bits == 16) ? 0xFFFFL : (bits == 8) ? 0xFFL : -1L;
+            int bitWidth = (bits == 8 || bits == 16 || bits == 64) ? bits : 32;
+            long a = parseBitwiseLong(aStr);
+            long b = parseBitwiseLong(bStr);
+            long mask = (bitWidth == 64) ? -1L : ((1L << bitWidth) - 1L);
+
+            long aMasked = a & mask;
+            long bMasked = b & mask;
             long res;
-            switch (op.toUpperCase()) {
-                case "AND": res = (a & b) & mask; break;
-                case "OR":  res = (a | b) & mask; break;
-                case "XOR": res = (a ^ b) & mask; break;
-                case "NOT": res = (~a) & mask; break;
-                case "SHL": res = (a << b) & mask; break;
-                case "SHR": res = (a >>> b) & mask; break;
+
+            String cleanOp = (op == null) ? "AND" : op.trim().toUpperCase();
+            switch (cleanOp) {
+                case "AND":
+                case "&":
+                    res = aMasked & bMasked;
+                    break;
+                case "OR":
+                case "|":
+                    res = aMasked | bMasked;
+                    break;
+                case "XOR":
+                case "^":
+                    res = aMasked ^ bMasked;
+                    break;
+                case "NOT":
+                case "~":
+                    res = (~aMasked) & mask;
+                    break;
+                case "NAND":
+                    res = (~(aMasked & bMasked)) & mask;
+                    break;
+                case "NOR":
+                    res = (~(aMasked | bMasked)) & mask;
+                    break;
+                case "XNOR":
+                    res = (~(aMasked ^ bMasked)) & mask;
+                    break;
+                case "SHL":
+                case "LSHIFT":
+                case "<<": {
+                    int shift = (int) (b & 0x3F);
+                    res = (aMasked << shift) & mask;
+                    break;
+                }
+                case "SHR":
+                case "RSHIFT":
+                case ">>>": {
+                    int shift = (int) (b & 0x3F);
+                    res = (aMasked >>> shift) & mask;
+                    break;
+                }
+                case "SAR":
+                case "ASHR":
+                case ">>": {
+                    int shift = (int) (b & 0x3F);
+                    // Sign extend according to bitWidth
+                    long signExtended = aMasked;
+                    if ((aMasked & (1L << (bitWidth - 1))) != 0 && bitWidth < 64) {
+                        signExtended = aMasked | (~mask);
+                    }
+                    res = (signExtended >> shift) & mask;
+                    break;
+                }
+                case "ROL": {
+                    int shift = (int) ((b % bitWidth + bitWidth) % bitWidth);
+                    res = ((aMasked << shift) | (aMasked >>> (bitWidth - shift))) & mask;
+                    break;
+                }
+                case "ROR": {
+                    int shift = (int) ((b % bitWidth + bitWidth) % bitWidth);
+                    res = ((aMasked >>> shift) | (aMasked << (bitWidth - shift))) & mask;
+                    break;
+                }
                 default:
-                    resp.put("error", "Unknown bitwise operation");
+                    resp.put("error", "Unknown bitwise operation: " + op);
                     return resp;
             }
-            resp.put("dec", res);
-            resp.put("hex", "0x" + Long.toHexString(res).toUpperCase());
-            resp.put("bin", Long.toBinaryString(res));
+
+            resp.put("op", cleanOp);
+            resp.put("bits", bitWidth);
+            resp.put("unsignedDec", Long.toUnsignedString(res));
+            // Signed interpretation
+            long signedRes = res;
+            if (bitWidth < 64 && (res & (1L << (bitWidth - 1))) != 0) {
+                signedRes = res | (~mask);
+            }
+            resp.put("signedDec", signedRes);
+            resp.put("hex", String.format("0x%0" + (bitWidth / 4) + "X", res));
+
+            String binFormat = "%" + bitWidth + "s";
+            String aBin = String.format(binFormat, Long.toBinaryString(aMasked)).replace(' ', '0');
+            String bBin = String.format(binFormat, Long.toBinaryString(bMasked)).replace(' ', '0');
+            String resBin = String.format(binFormat, Long.toBinaryString(res)).replace(' ', '0');
+
+            resp.put("aBin", aBin);
+            resp.put("bBin", bBin);
+            resp.put("bin", resBin);
+            resp.put("aHex", String.format("0x%0" + (bitWidth / 4) + "X", aMasked));
+            resp.put("bHex", String.format("0x%0" + (bitWidth / 4) + "X", bMasked));
+
+            // Generate bit array for visual playground
+            List<Map<String, Object>> bitGrid = new ArrayList<>();
+            for (int i = 0; i < bitWidth; i++) {
+                int bitIndex = bitWidth - 1 - i;
+                Map<String, Object> col = new HashMap<>();
+                col.put("index", bitIndex);
+                col.put("a", aBin.charAt(i) - '0');
+                col.put("b", bBin.charAt(i) - '0');
+                col.put("res", resBin.charAt(i) - '0');
+                bitGrid.add(col);
+            }
+            resp.put("bitGrid", bitGrid);
         } catch (Exception e) {
-            resp.put("error", e.getMessage());
+            resp.put("error", "Bitwise calculation failed: " + e.getMessage());
         }
         return resp;
     }
 
-    // ── 11. RSA ATTACK LAB (WIENER & FERMAT FACTORIZATION) ────────────
-    public Map<String, Object> rsaWienerAttack(String nStr, String eStr) {
-        Map<String, Object> resp = new HashMap<>();
-        try {
-            BigInteger n = new BigInteger(nStr.trim());
-            BigInteger e = new BigInteger(eStr.trim());
+    private long parseBitwiseLong(String val) {
+        if (val == null || val.isBlank()) return 0L;
+        String clean = val.trim().replaceAll("[\\s,]+", "");
+        if (clean.startsWith("0x") || clean.startsWith("0X")) {
+            return Long.parseUnsignedLong(clean.substring(2), 16);
+        }
+        if (clean.startsWith("0b") || clean.startsWith("0B")) {
+            return Long.parseUnsignedLong(clean.substring(2), 2);
+        }
+        return Long.parseLong(clean);
+    }
 
-            // Continued fractions of e/n to find d
-            BigInteger d = solveWiener(e, n);
-            if (d != null) {
-                resp.put("status", "success");
-                resp.put("d", d.toString());
-                resp.put("attack", "Wiener's Continued Fraction Attack (d < 1/3 * N^0.25)");
-            } else {
-                resp.put("status", "failed");
-                resp.put("message", "Wiener's condition not met. Try Fermat factorization.");
+    // ── 11. RSA ATTACK LAB (WIENER, FERMAT, HASTAD, COMMON MODULUS) ───
+    public Map<String, Object> rsaAttack(String attack, Map<String, String> params) {
+        Map<String, Object> resp = new HashMap<>();
+        String mode = (attack == null ? "wiener" : attack).trim().toLowerCase();
+        resp.put("attack", mode);
+
+        try {
+            switch (mode) {
+                case "wiener": {
+                    String nStr = params.getOrDefault("n", "");
+                    String eStr = params.getOrDefault("e", "");
+                    String cStr = params.getOrDefault("c", "");
+                    if (nStr.isBlank() || eStr.isBlank()) {
+                        resp.put("error", "Modulus N and Exponent e are required for Wiener's attack.");
+                        return resp;
+                    }
+                    BigInteger n = parseRsaBigInt(nStr);
+                    BigInteger e = parseRsaBigInt(eStr);
+                    BigInteger d = solveWiener(e, n);
+
+                    if (d != null) {
+                        resp.put("status", "success");
+                        resp.put("d", d.toString(10));
+                        resp.put("dHex", "0x" + d.toString(16).toUpperCase());
+                        resp.put("attackName", "Wiener's Continued Fraction Attack (d < 1/3 * N^0.25)");
+
+                        // Recover p and q
+                        BigInteger phi = e.multiply(d).subtract(BigInteger.ONE);
+                        // Find k
+                        for (BigInteger k = BigInteger.ONE; k.compareTo(e) < 0; k = k.add(BigInteger.ONE)) {
+                            if (phi.remainder(k).equals(BigInteger.ZERO)) {
+                                BigInteger phiCand = phi.divide(k);
+                                BigInteger s = n.subtract(phiCand).add(BigInteger.ONE);
+                                BigInteger disc = s.multiply(s).subtract(n.shiftLeft(2));
+                                if (disc.compareTo(BigInteger.ZERO) >= 0) {
+                                    BigInteger sqrt = disc.sqrt();
+                                    if (sqrt.multiply(sqrt).equals(disc)) {
+                                        BigInteger p = s.add(sqrt).shiftRight(1);
+                                        BigInteger q = s.subtract(sqrt).shiftRight(1);
+                                        if (p.multiply(q).equals(n)) {
+                                            resp.put("p", p.toString(10));
+                                            resp.put("q", q.toString(10));
+                                            resp.put("phi", phiCand.toString(10));
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!cStr.isBlank()) {
+                            BigInteger c = parseRsaBigInt(cStr);
+                            BigInteger m = c.modPow(d, n);
+                            resp.put("m", m.toString(10));
+                            resp.put("mHex", "0x" + m.toString(16).toUpperCase());
+                            byte[] mBytes = m.toByteArray();
+                            int offset = (mBytes.length > 1 && mBytes[0] == 0) ? 1 : 0;
+                            resp.put("mAscii", new String(mBytes, offset, mBytes.length - offset, StandardCharsets.UTF_8));
+                        }
+                    } else {
+                        resp.put("status", "failed");
+                        resp.put("message", "Wiener's condition not met: private exponent d >= 1/3 * N^0.25.");
+                    }
+                    return resp;
+                }
+
+                case "fermat": {
+                    String nStr = params.getOrDefault("n", "");
+                    String eStr = params.getOrDefault("e", "65537");
+                    String cStr = params.getOrDefault("c", "");
+                    if (nStr.isBlank()) {
+                        resp.put("error", "Modulus N is required for Fermat factorization.");
+                        return resp;
+                    }
+                    BigInteger n = parseRsaBigInt(nStr);
+                    BigInteger a = n.sqrt().add(BigInteger.ONE);
+                    BigInteger b2 = a.multiply(a).subtract(n);
+                    int count = 0;
+                    boolean solved = false;
+
+                    while (count++ < 2000000) {
+                        BigInteger b = b2.sqrt();
+                        if (b.multiply(b).equals(b2)) {
+                            BigInteger p = a.add(b);
+                            BigInteger q = a.subtract(b);
+                            resp.put("status", "success");
+                            resp.put("attackName", "Fermat's Factorization Method (|p - q| is small)");
+                            resp.put("p", p.toString(10));
+                            resp.put("q", q.toString(10));
+                            resp.put("iterations", count);
+
+                            BigInteger phi = p.subtract(BigInteger.ONE).multiply(q.subtract(BigInteger.ONE));
+                            resp.put("phi", phi.toString(10));
+
+                            BigInteger e = parseRsaBigInt(eStr);
+                            if (e != null && e.gcd(phi).equals(BigInteger.ONE)) {
+                                BigInteger d = e.modInverse(phi);
+                                resp.put("d", d.toString(10));
+                                resp.put("dHex", "0x" + d.toString(16).toUpperCase());
+
+                                if (!cStr.isBlank()) {
+                                    BigInteger c = parseRsaBigInt(cStr);
+                                    BigInteger m = c.modPow(d, n);
+                                    resp.put("m", m.toString(10));
+                                    resp.put("mHex", "0x" + m.toString(16).toUpperCase());
+                                    byte[] mBytes = m.toByteArray();
+                                    int offset = (mBytes.length > 1 && mBytes[0] == 0) ? 1 : 0;
+                                    resp.put("mAscii", new String(mBytes, offset, mBytes.length - offset, StandardCharsets.UTF_8));
+                                }
+                            }
+                            solved = true;
+                            break;
+                        }
+                        a = a.add(BigInteger.ONE);
+                        b2 = a.multiply(a).subtract(n);
+                    }
+                    if (!solved) {
+                        resp.put("status", "failed");
+                        resp.put("message", "Fermat factorization search limit reached: p and q are not close enough.");
+                    }
+                    return resp;
+                }
+
+                case "hastad": {
+                    // Small exponent broadcast attack (e.g. e=3, 3 different moduli and ciphertexts)
+                    int e = Integer.parseInt(params.getOrDefault("e", "3"));
+                    String modStr = params.getOrDefault("moduli", params.getOrDefault("n", ""));
+                    String ciphStr = params.getOrDefault("ciphertexts", params.getOrDefault("c", ""));
+
+                    List<BigInteger> moduli = parseBigIntList(modStr);
+                    List<BigInteger> ciphertexts = parseBigIntList(ciphStr);
+
+                    if (moduli.size() < e || ciphertexts.size() < e) {
+                        resp.put("error", String.format("Hastad's attack for e=%d requires at least %d pairs of (N, C). Found %d moduli and %d ciphertexts.",
+                                e, e, moduli.size(), ciphertexts.size()));
+                        return resp;
+                    }
+
+                    // CRT over first e components
+                    BigInteger nAll = BigInteger.ONE;
+                    for (int i = 0; i < e; i++) {
+                        nAll = nAll.multiply(moduli.get(i));
+                    }
+
+                    BigInteger totalC = BigInteger.ZERO;
+                    for (int i = 0; i < e; i++) {
+                        BigInteger ni = moduli.get(i);
+                        BigInteger ci = ciphertexts.get(i);
+                        BigInteger mi = nAll.divide(ni);
+                        BigInteger inv = mi.modInverse(ni);
+                        totalC = totalC.add(ci.multiply(mi).multiply(inv)).remainder(nAll);
+                    }
+
+                    // Integer e-th root of totalC
+                    BigInteger m = integerRoot(totalC, e);
+                    resp.put("status", "success");
+                    resp.put("attackName", "Hastad's Broadcast Attack (Small e via CRT)");
+                    resp.put("m", m.toString(10));
+                    resp.put("mHex", "0x" + m.toString(16).toUpperCase());
+
+                    byte[] mBytes = m.toByteArray();
+                    int offset = (mBytes.length > 1 && mBytes[0] == 0) ? 1 : 0;
+                    resp.put("mAscii", new String(mBytes, offset, mBytes.length - offset, StandardCharsets.UTF_8));
+                    return resp;
+                }
+
+                case "common_modulus": {
+                    // Same modulus N, two coprime exponents e1, e2, two ciphertexts c1, c2
+                    String nStr = params.getOrDefault("n", "");
+                    String e1Str = params.getOrDefault("e1", "");
+                    String e2Str = params.getOrDefault("e2", "");
+                    String c1Str = params.getOrDefault("c1", "");
+                    String c2Str = params.getOrDefault("c2", "");
+
+                    if (nStr.isBlank() || e1Str.isBlank() || e2Str.isBlank() || c1Str.isBlank() || c2Str.isBlank()) {
+                        resp.put("error", "Common modulus attack requires N, e1, e2, c1, and c2.");
+                        return resp;
+                    }
+
+                    BigInteger n = parseRsaBigInt(nStr);
+                    BigInteger e1 = parseRsaBigInt(e1Str);
+                    BigInteger e2 = parseRsaBigInt(e2Str);
+                    BigInteger c1 = parseRsaBigInt(c1Str);
+                    BigInteger c2 = parseRsaBigInt(c2Str);
+
+                    BigInteger[] bezout = extGcd(e1, e2);
+                    BigInteger a = bezout[0];
+                    BigInteger b = bezout[1];
+                    BigInteger gcd = bezout[2];
+
+                    if (!gcd.equals(BigInteger.ONE)) {
+                        resp.put("error", "Exponents e1 and e2 must be coprime. gcd(e1, e2) = " + gcd);
+                        return resp;
+                    }
+
+                    BigInteger term1;
+                    if (a.compareTo(BigInteger.ZERO) < 0) {
+                        term1 = c1.modInverse(n).modPow(a.negate(), n);
+                    } else {
+                        term1 = c1.modPow(a, n);
+                    }
+
+                    BigInteger term2;
+                    if (b.compareTo(BigInteger.ZERO) < 0) {
+                        term2 = c2.modInverse(n).modPow(b.negate(), n);
+                    } else {
+                        term2 = c2.modPow(b, n);
+                    }
+
+                    BigInteger m = term1.multiply(term2).remainder(n);
+                    resp.put("status", "success");
+                    resp.put("attackName", "Common Modulus Attack (Bezout Coefficients)");
+                    resp.put("bezoutA", a.toString(10));
+                    resp.put("bezoutB", b.toString(10));
+                    resp.put("m", m.toString(10));
+                    resp.put("mHex", "0x" + m.toString(16).toUpperCase());
+
+                    byte[] mBytes = m.toByteArray();
+                    int offset = (mBytes.length > 1 && mBytes[0] == 0) ? 1 : 0;
+                    resp.put("mAscii", new String(mBytes, offset, mBytes.length - offset, StandardCharsets.UTF_8));
+                    return resp;
+                }
+
+                default:
+                    resp.put("error", "Unknown RSA attack type: " + attack);
+                    return resp;
             }
         } catch (Exception ex) {
-            resp.put("error", ex.getMessage());
+            resp.put("error", "RSA attack failed: " + ex.getMessage());
+            return resp;
         }
-        return resp;
+    }
+
+    private List<BigInteger> parseBigIntList(String text) {
+        List<BigInteger> list = new ArrayList<>();
+        if (text == null || text.isBlank()) return list;
+        String[] tokens = text.split("[,\\n;]+");
+        for (String t : tokens) {
+            String s = t.trim();
+            if (!s.isEmpty()) {
+                list.add(parseRsaBigInt(s));
+            }
+        }
+        return list;
+    }
+
+    private BigInteger integerRoot(BigInteger n, int root) {
+        if (n.compareTo(BigInteger.ZERO) <= 0) return BigInteger.ZERO;
+        if (root == 1) return n;
+        BigInteger low = BigInteger.ONE;
+        BigInteger high = n;
+        while (low.compareTo(high) <= 0) {
+            BigInteger mid = low.add(high).shiftRight(1);
+            BigInteger midPow = mid.pow(root);
+            int cmp = midPow.compareTo(n);
+            if (cmp == 0) return mid;
+            if (cmp < 0) {
+                low = mid.add(BigInteger.ONE);
+            } else {
+                high = mid.subtract(BigInteger.ONE);
+            }
+        }
+        return high;
+    }
+
+    private BigInteger[] extGcd(BigInteger a, BigInteger b) {
+        if (b.equals(BigInteger.ZERO)) {
+            return new BigInteger[]{BigInteger.ONE, BigInteger.ZERO, a};
+        }
+        BigInteger[] qr = a.divideAndRemainder(b);
+        BigInteger[] prev = extGcd(b, qr[1]);
+        BigInteger x = prev[1];
+        BigInteger y = prev[0].subtract(qr[0].multiply(prev[1]));
+        return new BigInteger[]{x, y, prev[2]};
+    }
+
+    public Map<String, Object> rsaWienerAttack(String nStr, String eStr) {
+        Map<String, String> params = new HashMap<>();
+        params.put("n", nStr);
+        params.put("e", eStr);
+        return rsaAttack("wiener", params);
     }
 
     private BigInteger solveWiener(BigInteger e, BigInteger n) {
@@ -1073,39 +1438,43 @@ public class CryptoEngineService {
     }
 
     public Map<String, Object> rsaFermatFactor(String nStr) {
-        Map<String, Object> resp = new HashMap<>();
-        try {
-            BigInteger n = new BigInteger(nStr.trim());
-            BigInteger a = n.sqrt().add(BigInteger.ONE);
-            BigInteger b2 = a.multiply(a).subtract(n);
-            int count = 0;
-            while (count++ < 1000000) {
-                BigInteger b = b2.sqrt();
-                if (b.multiply(b).equals(b2)) {
-                    BigInteger p = a.add(b);
-                    BigInteger q = a.subtract(b);
-                    resp.put("status", "success");
-                    resp.put("p", p.toString());
-                    resp.put("q", q.toString());
-                    resp.put("iterations", count);
-                    return resp;
-                }
-                a = a.add(BigInteger.ONE);
-                b2 = a.multiply(a).subtract(n);
-            }
-            resp.put("status", "timeout");
-            resp.put("message", "p and q are not close enough for Fermat factorization.");
-        } catch (Exception ex) {
-            resp.put("error", ex.getMessage());
-        }
-        return resp;
+        Map<String, String> params = new HashMap<>();
+        params.put("n", nStr);
+        return rsaAttack("fermat", params);
     }
 
     // ── 12. VIGENÈRE SOLVER & IOC CRACKER ──────────────────────────────
     public Map<String, Object> solveVigenere(String text, String key) {
+        return solveVigenere(text, key, (key != null && !key.isBlank()) ? "decrypt" : "crack");
+    }
+
+    public Map<String, Object> solveVigenere(String text, String key, String mode) {
         Map<String, Object> resp = new HashMap<>();
-        if (text == null) return resp;
-        if (key != null && !key.isEmpty()) {
+        if (text == null) text = "";
+        String cleanMode = (mode == null ? "crack" : mode).trim().toLowerCase();
+        resp.put("input", text);
+        resp.put("mode", cleanMode);
+
+        if ("encrypt".equals(cleanMode) && key != null && !key.isBlank()) {
+            StringBuilder sb = new StringBuilder();
+            String cleanKey = key.toUpperCase();
+            int ki = 0;
+            for (char c : text.toCharArray()) {
+                if (Character.isLetter(c)) {
+                    char base = Character.isLowerCase(c) ? 'a' : 'A';
+                    int k = cleanKey.charAt(ki % cleanKey.length()) - 'A';
+                    sb.append((char) (base + (c - base + k) % 26));
+                    ki++;
+                } else {
+                    sb.append(c);
+                }
+            }
+            resp.put("result", sb.toString());
+            resp.put("key", cleanKey);
+            return resp;
+        }
+
+        if ("decrypt".equals(cleanMode) && key != null && !key.isBlank()) {
             StringBuilder sb = new StringBuilder();
             String cleanKey = key.toUpperCase();
             int ki = 0;
@@ -1115,22 +1484,33 @@ public class CryptoEngineService {
                     int k = cleanKey.charAt(ki % cleanKey.length()) - 'A';
                     sb.append((char) (base + (c - base - k + 26) % 26));
                     ki++;
-                } else sb.append(c);
+                } else {
+                    sb.append(c);
+                }
             }
-            resp.put("decrypted", sb.toString());
+            resp.put("result", sb.toString());
+            resp.put("key", cleanKey);
             return resp;
         }
 
-        // Automatic Index of Coincidence (IoC) key length analysis
-        List<Double> iocs = new ArrayList<>();
-        String clean = text.replaceAll("[^a-zA-Z]", "").toUpperCase();
-        for (int klen = 1; klen <= Math.min(16, clean.length() / 2); klen++) {
+        // ── AUTOMATED CRACKING (WITHOUT KEY) VIA IOC & FREQUENCY ANALYSIS ──
+        String cleanLetters = text.replaceAll("[^a-zA-Z]", "").toUpperCase();
+        if (cleanLetters.length() < 10) {
+            resp.put("error", "Text too short for automated statistical cracking (minimum 10 letters).");
+            return resp;
+        }
+
+        int maxLen = Math.min(20, cleanLetters.length() / 2);
+        List<Map<String, Object>> iocTable = new ArrayList<>();
+        double targetIoc = 0.067; // English Index of Coincidence
+
+        for (int klen = 1; klen <= maxLen; klen++) {
             double totalIoc = 0;
             for (int col = 0; col < klen; col++) {
                 int[] counts = new int[26];
                 int total = 0;
-                for (int i = col; i < clean.length(); i += klen) {
-                    counts[clean.charAt(i) - 'A']++;
+                for (int i = col; i < cleanLetters.length(); i += klen) {
+                    counts[cleanLetters.charAt(i) - 'A']++;
                     total++;
                 }
                 if (total > 1) {
@@ -1139,23 +1519,89 @@ public class CryptoEngineService {
                     totalIoc += sum / (total * (total - 1));
                 }
             }
-            iocs.add(totalIoc / klen);
+            double avgIoc = totalIoc / klen;
+            Map<String, Object> row = new HashMap<>();
+            row.put("length", klen);
+            row.put("ioc", Math.round(avgIoc * 10000.0) / 10000.0);
+            row.put("diff", Math.abs(avgIoc - targetIoc));
+            iocTable.add(row);
         }
-        resp.put("probableKeyLength", findProbableKeyLength(iocs));
-        resp.put("iocValues", iocs);
-        return resp;
-    }
 
-    private int findProbableKeyLength(List<Double> iocs) {
-        int best = 1;
-        double bestVal = 0;
-        for (int i = 0; i < iocs.size(); i++) {
-            if (iocs.get(i) > 0.06 && iocs.get(i) > bestVal) {
-                bestVal = iocs.get(i);
-                best = i + 1;
+        // Test the top candidate key lengths
+        List<Map<String, Object>> sortedByIoc = new ArrayList<>(iocTable);
+        sortedByIoc.sort(Comparator.comparingDouble(a -> (Double) a.get("diff")));
+
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        Set<Integer> testedLengths = new HashSet<>();
+
+        for (Map<String, Object> candidateLen : sortedByIoc) {
+            int klen = (Integer) candidateLen.get("length");
+            if (testedLengths.contains(klen) || testedLengths.size() >= 5) continue;
+            testedLengths.add(klen);
+
+            // Reconstruct key using chi-squared frequency matching on each coset
+            StringBuilder recoveredKey = new StringBuilder();
+            for (int col = 0; col < klen; col++) {
+                int[] counts = new int[26];
+                int total = 0;
+                for (int i = col; i < cleanLetters.length(); i += klen) {
+                    counts[cleanLetters.charAt(i) - 'A']++;
+                    total++;
+                }
+
+                int bestShift = 0;
+                double minChi2 = 1e9;
+                for (int s = 0; s < 26; s++) {
+                    double chi2 = 0;
+                    for (int c = 0; c < 26; c++) {
+                        char decLetter = (char) ('a' + (c - s + 26) % 26);
+                        double expected = total * (ENGLISH_FREQ.getOrDefault(decLetter, 0.05) / 100.0);
+                        double diff = counts[c] - expected;
+                        chi2 += (diff * diff) / (expected > 0 ? expected : 0.001);
+                    }
+                    if (chi2 < minChi2) {
+                        minChi2 = chi2;
+                        bestShift = s;
+                    }
+                }
+                recoveredKey.append((char) ('A' + bestShift));
             }
+
+            // Decrypt with recovered key
+            String keyStr = recoveredKey.toString();
+            StringBuilder decSb = new StringBuilder();
+            int ki = 0;
+            for (char c : text.toCharArray()) {
+                if (Character.isLetter(c)) {
+                    char base = Character.isLowerCase(c) ? 'a' : 'A';
+                    int k = keyStr.charAt(ki % keyStr.length()) - 'A';
+                    decSb.append((char) (base + (c - base - k + 26) % 26));
+                    ki++;
+                } else {
+                    decSb.append(c);
+                }
+            }
+
+            String decStr = decSb.toString();
+            double score = scoreEnglish(decStr);
+
+            Map<String, Object> cand = new HashMap<>();
+            cand.put("keyLength", klen);
+            cand.put("key", keyStr);
+            cand.put("ioc", candidateLen.get("ioc"));
+            cand.put("score", Math.round(score));
+            cand.put("decrypted", decStr);
+            candidates.add(cand);
         }
-        return best;
+
+        candidates.sort((a, b) -> Long.compare((Long) b.get("score"), (Long) a.get("score")));
+
+        resp.put("probableKeyLength", candidates.isEmpty() ? 1 : candidates.get(0).get("keyLength"));
+        resp.put("key", candidates.isEmpty() ? "" : candidates.get(0).get("key"));
+        resp.put("result", candidates.isEmpty() ? "" : candidates.get(0).get("decrypted"));
+        resp.put("candidates", candidates);
+        resp.put("iocTable", iocTable);
+        return resp;
     }
 
     // ── 13. PADDING ORACLE SIMULATOR ──────────────────────────────────

@@ -103,24 +103,30 @@ public class CryptoToolController {
         return ResponseEntity.ok(cryptoEngineService.bitwiseCalc(a, b, op, bits));
     }
 
+    @PostMapping("/rsa-attack")
+    public ResponseEntity<Map<String, Object>> rsaAttack(@RequestBody Map<String, String> body) {
+        String attack = body.getOrDefault("attack", "wiener");
+        return ResponseEntity.ok(cryptoEngineService.rsaAttack(attack, body));
+    }
+
     @PostMapping("/rsa-wiener")
     public ResponseEntity<Map<String, Object>> rsaWiener(@RequestBody Map<String, String> body) {
-        String n = body.getOrDefault("n", "");
-        String e = body.getOrDefault("e", "");
-        return ResponseEntity.ok(cryptoEngineService.rsaWienerAttack(n, e));
+        body.put("attack", "wiener");
+        return ResponseEntity.ok(cryptoEngineService.rsaAttack("wiener", body));
     }
 
     @PostMapping("/rsa-fermat")
     public ResponseEntity<Map<String, Object>> rsaFermat(@RequestBody Map<String, String> body) {
-        String n = body.getOrDefault("n", "");
-        return ResponseEntity.ok(cryptoEngineService.rsaFermatFactor(n));
+        body.put("attack", "fermat");
+        return ResponseEntity.ok(cryptoEngineService.rsaAttack("fermat", body));
     }
 
     @PostMapping("/vigenere")
     public ResponseEntity<Map<String, Object>> solveVigenere(@RequestBody Map<String, String> body) {
         String text = body.getOrDefault("text", "");
         String key = body.getOrDefault("key", "");
-        return ResponseEntity.ok(cryptoEngineService.solveVigenere(text, key));
+        String mode = body.getOrDefault("mode", key.isEmpty() ? "crack" : "decrypt");
+        return ResponseEntity.ok(cryptoEngineService.solveVigenere(text, key, mode));
     }
 
     @PostMapping("/padding-oracle")
